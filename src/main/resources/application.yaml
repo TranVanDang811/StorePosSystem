@@ -1,0 +1,62 @@
+
+server:
+  port: 8080
+  servlet:
+    context-path: /backend
+spring:
+  datasource:
+    url: ${DBMS_CONNECTION:jdbc:mysql://localhost:3306/backend}
+    driverClassName: "com.mysql.cj.jdbc.Driver"
+    username: ${DBMS_USERNAME:root}
+    password: ${DBMS_PASSWORD:root}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate.jdbc.time_zone: Asia/Ho_Chi_Minh
+      hibernate:
+        format_sql: true
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 10MB
+      max-request-size: 50MB
+  web:
+    cors:
+      allowed-origins: "http://localhost:5173"
+      allowed-methods: "*"
+      allowed-headers: "*"
+      allow-credentials: true
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: tranvandang08112003b@gmail.com
+    password: oeafheamvkwwzbnk
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
+app:
+  admin:
+    username: admin
+    password: admin
+
+cloudinary:
+  cloud-name: dx3mcnnfa
+  api-key: 763191867466888
+  api-secret: AvAmuie9XZJ96n00-dkGdPGH6ho
+
+jwt:
+  signerKey: "tQSsEDHf81E77WDsv3M96bNnM/OtkQRr1hbmue91AG0P/s9Xr5N2MfjFBCqmBoO4"
+  valid-duration: 1800  #in second
+  refreshable-duration: 604800 # in seconds
+
+logging:
+  level:
+    root: INFO
+    org.springframework.web: DEBUG
+    org.springframework.web.servlet.DispatcherServlet: TRACE
