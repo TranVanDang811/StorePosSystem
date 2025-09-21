@@ -4,9 +4,11 @@ import com.possystem.backend.common.response.ApiResponse;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.TypeMismatchException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.BindException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
@@ -15,7 +17,6 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 
-import java.nio.file.AccessDeniedException;
 import java.util.Map;
 
 @ControllerAdvice
@@ -107,13 +108,17 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(ApiResponse.error(errorCode.getCode(), errorCode.getMessage()));
     }
+    // 403 Forbidden - không đủ quyền truy cập
+    // Xử lý lỗi truy cập không hợp lệ (ví dụ: không đủ quyền)
+    @ExceptionHandler(value = org.springframework.security.access.AccessDeniedException.class)
+    ResponseEntity<ApiResponse<Object>> handlingAccessDeniedException(AccessDeniedException exception) {
+        ErrorCode errorCode = ErrorCode.UNAUTHORIZED; // Lỗi truy cập trái phép
 
-    // xử lý lỗi truy cập không hợp lệ (403 / 401)
-    @ExceptionHandler(AccessDeniedException.class)
-    public ResponseEntity<ApiResponse<Object>> handleAccessDenied(AccessDeniedException ex) {
-        ErrorCode errorCode = ErrorCode.UNAUTHORIZED;
-        return ResponseEntity.status(errorCode.getStatusCode())
-                .body(ApiResponse.error(errorCode.getCode(), errorCode.getMessage()));
+        return ResponseEntity.status(errorCode.getStatusCode()) // Trả về mã lỗi và thông báo tương ứng
+                .body(ApiResponse.builder()
+                        .code(errorCode.getCode())
+                        .message(errorCode.getMessage())
+                        .build());
     }
 
     // xử lý lỗi validate @Valid
@@ -158,4 +163,15 @@ public class GlobalExceptionHandler {
         }
         return message;
     }
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ApiResponse<?>> handleDataIntegrityViolationException(DataIntegrityViolationException ex) {
+        log.error("Data integrity violation", ex);
+
+        ErrorCode errorCode = ErrorCode.DUPLICATE_RESOURCE;
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(ApiResponse.error(errorCode.getCode(), errorCode.getMessage()));
+    }
+
 }

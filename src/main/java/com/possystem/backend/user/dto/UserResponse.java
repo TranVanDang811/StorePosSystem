@@ -3,6 +3,8 @@ package com.possystem.backend.user.dto;
 import com.possystem.backend.common.enums.UserStatus;
 
 import com.possystem.backend.role.dto.RoleResponse;
+import com.possystem.backend.user.entity.CustomerProfile;
+import com.possystem.backend.user.entity.EmployeeProfile;
 import lombok.*;
 import lombok.experimental.FieldDefaults;
 
@@ -21,4 +23,6 @@ public class UserResponse {
     String phone;
     UserStatus status;
     Set<RoleResponse> roles;
+    CustomerProfileRequest customerProfile;
+    EmployeeProfileRequest employeeProfile;
 }

@@ -45,11 +45,6 @@ app:
     username: admin
     password: admin
 
-cloudinary:
-  cloud-name: dx3mcnnfa
-  api-key: 763191867466888
-  api-secret: AvAmuie9XZJ96n00-dkGdPGH6ho
-
 jwt:
   signerKey: "tQSsEDHf81E77WDsv3M96bNnM/OtkQRr1hbmue91AG0P/s9Xr5N2MfjFBCqmBoO4"
   valid-duration: 1800  #in second

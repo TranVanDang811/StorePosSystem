@@ -1,5 +1,6 @@
 package com.possystem.backend.user.entity;
 
+import com.fasterxml.jackson.annotation.JsonManagedReference;
 import com.possystem.backend.entity.AbstractEntity;
 
 import com.possystem.backend.common.enums.UserStatus;
@@ -39,6 +40,12 @@ public class User extends AbstractEntity {
     @Column(name = "status")
     UserStatus status;
 
+    @OneToOne(mappedBy = "user", cascade = CascadeType.ALL)
+    @JsonManagedReference
+    CustomerProfile customerProfile;
 
+    @OneToOne(mappedBy = "user", cascade = CascadeType.ALL)
+    @JsonManagedReference
+     EmployeeProfile employeeProfile;
 
 }

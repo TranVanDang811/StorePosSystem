@@ -1,4 +1,5 @@
 package com.possystem.backend.common.response;
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.*;
 import lombok.experimental.FieldDefaults;
@@ -23,6 +24,7 @@ public class ApiResponse<T> {
     T result;
 
     @Builder.Default
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd HH:mm:ss")
     LocalDateTime timestamp = LocalDateTime.now();
 
     // Factory method cho success
@@ -32,6 +34,7 @@ public class ApiResponse<T> {
                 .code(1000)
                 .message("Success")
                 .result(result)
+                .timestamp(LocalDateTime.now())
                 .build();
     }
 
@@ -41,6 +44,7 @@ public class ApiResponse<T> {
                 .success(false)
                 .code(code)
                 .message(message)
+                .timestamp(LocalDateTime.now())
                 .build();
     }
 }

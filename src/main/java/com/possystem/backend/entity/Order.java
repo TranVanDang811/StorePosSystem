@@ -19,8 +19,8 @@ import java.math.BigDecimal;
 @FieldDefaults(level = AccessLevel.PRIVATE)
 @Entity
 public class Order extends AbstractEntity{
-    @ManyToOne
-    private Customer customer;
+//    @ManyToOne
+//    private Customer customer;
 
     @ManyToOne
     private User staff;

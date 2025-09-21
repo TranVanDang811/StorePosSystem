@@ -14,8 +14,6 @@ import lombok.experimental.FieldDefaults;
 @Entity
 public class CustomerPointHistory extends AbstractEntity{
 
-    @ManyToOne
-    Customer customer;
 
     Integer pointsChanged;   // +1, +2, -3 ...
     String reason;           // "Earn from Order #123", "Redeem in Order #456"

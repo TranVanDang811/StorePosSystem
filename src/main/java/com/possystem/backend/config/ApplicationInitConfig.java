@@ -48,10 +48,10 @@ public class ApplicationInitConfig {
                             .description("Employee role")
                             .build()));
 
-            Role userRole = roleRepository.findByName(PredefinedRole.USER_ROLE)
+            Role customerRole = roleRepository.findByName(PredefinedRole.CUSTOMER_ROLE)
                     .orElseGet(() -> roleRepository.save(Role.builder()
-                            .name(PredefinedRole.USER_ROLE)
-                            .description("User role")
+                            .name(PredefinedRole.CUSTOMER_ROLE)
+                            .description("Customer role")
                             .build()));
 
             // 2. Tạo role ADMIN nếu chưa có
@@ -66,7 +66,7 @@ public class ApplicationInitConfig {
                 User user = User.builder()
                         .username(ADMIN_USER_NAME)
                         .password(passwordEncoder.encode(ADMIN_PASSWORD))
-                        .roles(Set.of(adminRole, employeeRole,userRole))
+                        .roles(Set.of(adminRole, employeeRole,customerRole))
                         .build();
                 userRepository.save(user);
                 log.warn("Admin user has been created with default password: admin, please change it");

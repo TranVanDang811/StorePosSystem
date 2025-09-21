@@ -25,6 +25,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.util.HashSet;
+import java.util.Set;
 
 @Slf4j
 @Service
@@ -36,20 +37,26 @@ public class UserServiceImpl implements UserService {
     RoleRepository roleRepository;
     PasswordEncoder passwordEncoder;
     @Transactional
+    @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE')")
     public UserResponse createUser(UserCreationRequest request) {
 
         User user = userMapper.toUser(request);
         user.setPassword(passwordEncoder.encode(request.getPassword()));
 
-        HashSet<Role> roles = new HashSet<>();
-        roleRepository.findById(PredefinedRole.USER_ROLE).ifPresent(roles::add);
+        Role role = roleRepository.findByName(request.getRoles())
+                .orElseThrow(() -> new AppException(ErrorCode.ROLE_NOT_FOUND));
+        user.setRoles(Set.of(role));
 
-        user.setRoles(roles);
-
+        if (user.getCustomerProfile() != null) {
+            user.getCustomerProfile().setUser(user);
+        }
+        if (user.getEmployeeProfile() != null) {
+            user.getEmployeeProfile().setUser(user);
+        }
         try {
             user = userRepository.save(user);
         } catch (DataIntegrityViolationException exception) {
-            throw new AppException(ErrorCode.USER_NOT_FOUND);
+            throw new AppException(ErrorCode.USERNAME_ALREADY_EXISTS,exception);
         }
 
         return userMapper.toUserResponse(user);
