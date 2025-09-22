@@ -21,7 +21,7 @@ public class EmployeeProfile {
 
     String position;   // chức vụ
     double salary;     // lương cơ bản
-    LocalDateTime hireDate; // ngày vào làm
+    LocalDate hireDate; // ngày vào làm
     String shift;      // ca làm việc
 
     @OneToOne

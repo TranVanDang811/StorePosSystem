@@ -42,4 +42,11 @@ public class UserController {
                 .result(userService.getUsers(page - 1, size))
                 .build();
     }
+    // Get information of logged-in user
+    @GetMapping("/myInfo")
+    ApiResponse<UserResponse> getMyInfo() {
+        return ApiResponse.<UserResponse>builder()
+                .result(userService.getMyInfo())
+                .build();
+    }
 }

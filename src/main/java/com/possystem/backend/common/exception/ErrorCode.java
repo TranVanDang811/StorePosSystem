@@ -27,7 +27,7 @@ public enum ErrorCode {
     PASSWORD_INVALID(3003, "Password must be at least {min} characters", HttpStatus.BAD_REQUEST),
     INVALID_DOB(3004, "Your age must be at least {min}", HttpStatus.BAD_REQUEST),
     INVALID_QUANTITY(3005, "Quantity must be between {min} and {max}", HttpStatus.BAD_REQUEST),
-
+    PASSWORD_REQUIRED(3006, "Password required", HttpStatus.BAD_REQUEST),
     // ===== Resource not found =====
     USER_NOT_FOUND(4001, "User not found", HttpStatus.NOT_FOUND),
     PRODUCT_NOT_FOUND(4002, "Product not found", HttpStatus.NOT_FOUND),
@@ -42,6 +42,8 @@ public enum ErrorCode {
     SUPPLIER_NAME_ALREADY_EXISTS(5003, "Supplier name already exists", HttpStatus.CONFLICT),
     DUPLICATE_RESOURCE(5004,"Repeat data.",HttpStatus.CONFLICT),
     USERNAME_ALREADY_EXISTS(5007, "Username already exists", HttpStatus.CONFLICT);
+
+
     private final int code;
     private final String message;
     private final HttpStatus statusCode;

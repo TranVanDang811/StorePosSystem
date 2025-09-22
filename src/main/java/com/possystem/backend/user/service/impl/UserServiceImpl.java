@@ -20,7 +20,9 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.access.prepost.PostAuthorize;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -47,11 +49,26 @@ public class UserServiceImpl implements UserService {
                 .orElseThrow(() -> new AppException(ErrorCode.ROLE_NOT_FOUND));
         user.setRoles(Set.of(role));
 
-        if (user.getCustomerProfile() != null) {
-            user.getCustomerProfile().setUser(user);
-        }
-        if (user.getEmployeeProfile() != null) {
-            user.getEmployeeProfile().setUser(user);
+
+        if (role.getName().equals("CUSTOMER")) {
+            // Khách hàng thì không bắt buộc username, password, email
+            user.setUsername(null);
+            user.setPassword(null);
+            user.setEmail(null);
+
+            if (user.getCustomerProfile() != null) {
+                user.getCustomerProfile().setUser(user);
+            }
+        } else {
+            // Nhân viên / admin thì vẫn yêu cầu username, password, email
+            if (request.getPassword() == null) {
+                throw new AppException(ErrorCode.PASSWORD_REQUIRED);
+            }
+            user.setPassword(passwordEncoder.encode(request.getPassword()));
+
+            if (user.getEmployeeProfile() != null) {
+                user.getEmployeeProfile().setUser(user);
+            }
         }
         try {
             user = userRepository.save(user);
@@ -67,6 +84,16 @@ public class UserServiceImpl implements UserService {
         Pageable pageable = PageRequest.of(page, size);
         return userRepository.findAll(pageable)
                 .map(userMapper::toUserResponse);
+    }
+
+    @PostAuthorize("hasRole('ADMIN') or returnObject.username == authentication.name")
+    public UserResponse getMyInfo() {
+        var context = SecurityContextHolder.getContext();
+        String name = context.getAuthentication().getName();
+
+        User user = userRepository.findByUsername(name).orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
+
+        return userMapper.toUserResponse(user);
     }
 }
 
