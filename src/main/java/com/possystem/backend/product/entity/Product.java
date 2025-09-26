@@ -1,9 +1,10 @@
-package com.possystem.backend.entity;
+package com.possystem.backend.product.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.possystem.backend.category.entity.Category;
 import com.possystem.backend.common.enums.ProductType;
-import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
+import com.possystem.backend.entity.AbstractEntity;
+import jakarta.persistence.*;
 import lombok.*;
 import lombok.experimental.FieldDefaults;
 
@@ -25,7 +26,9 @@ public class Product extends AbstractEntity {
     BigDecimal stock;     // tồn kho
     LocalDate expiryDate; // hạn sử dụng (nếu có)
 
-    @Enumerated(EnumType.STRING)
-    ProductType type;     // INGREDIENT, DRINK, CAKE, OTHER
+    @ManyToOne
+    @JsonIgnore
+    @JoinColumn(name = "category_id", nullable = false)
+    Category category;  // INGREDIENT, DRINK, CAKE, OTHER
 
 }

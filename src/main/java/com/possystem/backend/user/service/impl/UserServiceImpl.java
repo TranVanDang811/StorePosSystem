@@ -1,6 +1,7 @@
 package com.possystem.backend.user.service.impl;
 
 import com.possystem.backend.common.constant.PredefinedRole;
+import com.possystem.backend.common.enums.UserStatus;
 import com.possystem.backend.common.exception.AppException;
 import com.possystem.backend.common.exception.ErrorCode;
 import com.possystem.backend.common.util.mapper.UserMapper;
@@ -39,7 +40,7 @@ public class UserServiceImpl implements UserService {
     RoleRepository roleRepository;
     PasswordEncoder passwordEncoder;
     @Transactional
-    @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE')")
+    @PreAuthorize("hasRole('ADMIN')")
     public UserResponse createUser(UserCreationRequest request) {
 
         User user = userMapper.toUser(request);
@@ -94,6 +95,91 @@ public class UserServiceImpl implements UserService {
         User user = userRepository.findByUsername(name).orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
 
         return userMapper.toUserResponse(user);
+    }
+
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
+    public Page<UserResponse> searchUsers(String keyword, String roleName, UserStatus status, int page, int size) {
+        Pageable pageable = PageRequest.of(page, size);
+        Page<User> users;
+
+        boolean hasKeyword = keyword != null && !keyword.isBlank();
+        boolean hasRole = roleName != null && !roleName.isBlank();
+        boolean hasStatus = status != null;
+
+        if (hasKeyword && hasRole && hasStatus) {
+            users = userRepository.findByFullNameContainingIgnoreCaseAndRoles_NameAndStatus(keyword, roleName, status, pageable);
+        } else if (hasKeyword && hasRole) {
+            users = userRepository.findByFullNameContainingIgnoreCaseAndRoles_Name(keyword, roleName, pageable);
+        } else if (hasKeyword && hasStatus) {
+            users = userRepository.findByFullNameContainingIgnoreCaseAndStatus(keyword, status, pageable);
+        } else if (hasRole && hasStatus) {
+            users = userRepository.findByRoles_NameAndStatus(roleName, status, pageable);
+        } else if (hasKeyword) {
+            users = userRepository.findByFullNameContainingIgnoreCase(keyword, pageable);
+        } else if (hasRole) {
+            users = userRepository.findByRoles_Name(roleName, pageable);
+        } else if (hasStatus) {
+            users = userRepository.findByStatus(status, pageable);
+        } else {
+            users = userRepository.findAll(pageable);
+        }
+
+        return users.map(userMapper::toUserResponse);
+    }
+
+    @PreAuthorize("hasRole('ADMIN')")
+    public void deleteUser(String userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
+        userRepository.delete(user);
+    }
+
+    @PreAuthorize("hasRole('ADMIN')")
+    public UserResponse changerStatus(String userId, UserStatus status) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
+
+        user.setStatus(status);
+
+        return userMapper.toUserResponse(userRepository.save(user));
+    }
+
+    @PreAuthorize("hasRole('ADMIN')")
+    @Transactional
+    public UserResponse updateRole(String userId, String roleName) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
+
+        Role role = roleRepository.findByName(roleName)
+                .orElseThrow(() -> new AppException(ErrorCode.ROLE_NOT_FOUND));
+
+        Set<Role> newRoles = new HashSet<>();
+        newRoles.add(role);
+        user.setRoles(newRoles);
+
+        return userMapper.toUserResponse(userRepository.save(user));
+    }
+
+    public void changePassword(String userId, String oldPassword, String newPassword) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
+
+        String currentUsername = SecurityContextHolder.getContext().getAuthentication().getName();
+        boolean isSelf = user.getUsername().equals(currentUsername);
+        boolean isAdmin = SecurityContextHolder.getContext().getAuthentication().getAuthorities()
+                .stream()
+                .anyMatch(auth -> auth.getAuthority().equals("ROLE_ADMIN"));
+
+        if (isSelf) {
+            if (!passwordEncoder.matches(oldPassword, user.getPassword())) {
+                throw new AppException(ErrorCode.INVALID_PASSWORD);
+            }
+        } else if (!isAdmin) {
+            throw new AppException(ErrorCode.UNAUTHORIZED);
+        }
+
+        user.setPassword(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
     }
 }
 

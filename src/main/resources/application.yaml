@@ -4,6 +4,13 @@ server:
   servlet:
     context-path: /backend
 spring:
+  application:
+    name: pos-system
+  profiles:
+    active: @spring.profiles.active@
+
+
+
   datasource:
     url: ${DBMS_CONNECTION:jdbc:mysql://localhost:3306/backend}
     driverClassName: "com.mysql.cj.jdbc.Driver"
@@ -39,6 +46,8 @@ spring:
           auth: true
           starttls:
             enable: true
+
+
 
 app:
   admin:

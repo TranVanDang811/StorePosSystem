@@ -28,6 +28,7 @@ public enum ErrorCode {
     INVALID_DOB(3004, "Your age must be at least {min}", HttpStatus.BAD_REQUEST),
     INVALID_QUANTITY(3005, "Quantity must be between {min} and {max}", HttpStatus.BAD_REQUEST),
     PASSWORD_REQUIRED(3006, "Password required", HttpStatus.BAD_REQUEST),
+    INVALID_PASSWORD(3007,"Incorrect old password provided", HttpStatus.BAD_REQUEST),
     // ===== Resource not found =====
     USER_NOT_FOUND(4001, "User not found", HttpStatus.NOT_FOUND),
     PRODUCT_NOT_FOUND(4002, "Product not found", HttpStatus.NOT_FOUND),

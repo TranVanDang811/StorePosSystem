@@ -1,0 +1,13 @@
+
+spring:
+  config:
+    activate:
+      on-profile: prod
+
+open:
+  api:
+    title: POS System API
+    version: v1.0.0
+    description: API documentation for POS System
+    serverUrl: http://localhost:8080/backend
+    serverName: Server prod

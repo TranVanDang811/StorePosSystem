@@ -1,0 +1,12 @@
+spring:
+  config:
+    activate:
+      on-profile: test
+
+open:
+  api:
+    title: POS System API
+    version: v1.0.0
+    description: API documentation for POS System
+    serverUrl: http://localhost:8080/backend
+    serverName: Server test

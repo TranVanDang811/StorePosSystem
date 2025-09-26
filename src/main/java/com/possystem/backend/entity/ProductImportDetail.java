@@ -1,11 +1,11 @@
 package com.possystem.backend.entity;
 
+import com.possystem.backend.product.entity.Product;
 import jakarta.persistence.*;
 import lombok.*;
 import lombok.experimental.FieldDefaults;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 
 @Getter
 @Setter

@@ -4,11 +4,10 @@ package com.possystem.backend.user.dto;
 import com.possystem.backend.common.enums.UserStatus;
 import com.possystem.backend.user.entity.CustomerProfile;
 import com.possystem.backend.user.entity.EmployeeProfile;
-import jakarta.validation.constraints.Size;
 import lombok.*;
 import lombok.experimental.FieldDefaults;
 
-import java.util.Set;
+
 
 @Data
 @Builder

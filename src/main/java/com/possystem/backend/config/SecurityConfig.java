@@ -2,6 +2,7 @@ package com.possystem.backend.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -13,6 +14,8 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtAut
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.cors.CorsConfiguration;
+
+import java.util.Arrays;
 
 @Configuration
 @EnableWebSecurity
@@ -26,12 +29,14 @@ public class SecurityConfig {
 
     private final CustomJwtDecoder customJwtDecoder;
     private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
-
+    private final Environment env;
 
     public SecurityConfig(CustomJwtDecoder customJwtDecoder,
-                          JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint) {
+                          JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint,
+                          Environment env) {
         this.customJwtDecoder = customJwtDecoder;
         this.jwtAuthenticationEntryPoint = jwtAuthenticationEntryPoint;
+        this.env = env;
     }
 
     @Bean
@@ -39,18 +44,38 @@ public class SecurityConfig {
         httpSecurity
                 .cors(cors -> cors.configurationSource(request -> {
                     CorsConfiguration corsConfig = new CorsConfiguration();
-                    corsConfig.addAllowedOrigin("http://localhost:5173"); // Cấp quyền cho origin của bạn
-                    corsConfig.addAllowedMethod("*"); // Cho phép tất cả các phương thức
-                    corsConfig.addAllowedHeader("*"); // Cho phép tất cả các headers
-                    corsConfig.setAllowCredentials(true); // Cho phép gửi thông tin xác thực như cookies
+                    corsConfig.addAllowedOrigin("http://localhost:5173");
+                    corsConfig.addAllowedMethod("*");
+                    corsConfig.addAllowedHeader("*");
+                    corsConfig.setAllowCredentials(true);
                     corsConfig.addExposedHeader("Authorization");
                     corsConfig.addExposedHeader("X-Total-Count");
                     return corsConfig;
                 }))
-                .authorizeHttpRequests(request -> request.requestMatchers(HttpMethod.POST, PUBLIC_ENDPOINTS)
-                        .permitAll()
-                        .anyRequest()
-                        .authenticated());
+                .authorizeHttpRequests(request -> {
+                    // Cho phép public endpoints
+                    request.requestMatchers(HttpMethod.POST, PUBLIC_ENDPOINTS).permitAll();
+
+                    // Swagger config theo profile
+                    if (Arrays.asList(env.getActiveProfiles()).contains("prod")) {
+                        // prod → chỉ ADMIN
+                        request.requestMatchers(
+                                "/swagger-ui/**",
+                                "/v3/api-docs/**",
+                                "/swagger-ui.html"
+                        ).hasRole("ADMIN");
+                    } else {
+                        // dev, test → mở thoải mái
+                        request.requestMatchers(
+                                "/swagger-ui/**",
+                                "/v3/api-docs/**",
+                                "/swagger-ui.html"
+                        ).permitAll();
+                    }
+
+                    // Các API khác cần login
+                    request.anyRequest().authenticated();
+                });
 
         httpSecurity.oauth2ResourceServer(oauth2 -> oauth2.jwt(jwtConfigurer -> jwtConfigurer
                         .decoder(customJwtDecoder)
