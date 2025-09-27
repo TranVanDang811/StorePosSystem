@@ -13,7 +13,7 @@ public enum ErrorCode {
     // ===== System errors =====
     UNCATEGORIZED_EXCEPTION(1000, "Uncategorized error", HttpStatus.INTERNAL_SERVER_ERROR),
     INTERNAL_SERVER_ERROR(1001, "Internal server error", HttpStatus.INTERNAL_SERVER_ERROR),
-
+    SERVER_ERROR(1002, "Error deleting photos on Cloudinary", HttpStatus.INTERNAL_SERVER_ERROR),
     // ===== Auth errors =====
     UNAUTHENTICATED(2001, "Unauthenticated", HttpStatus.UNAUTHORIZED),
     UNAUTHORIZED(2002, "You do not have permission", HttpStatus.FORBIDDEN),
@@ -29,6 +29,8 @@ public enum ErrorCode {
     INVALID_QUANTITY(3005, "Quantity must be between {min} and {max}", HttpStatus.BAD_REQUEST),
     PASSWORD_REQUIRED(3006, "Password required", HttpStatus.BAD_REQUEST),
     INVALID_PASSWORD(3007,"Incorrect old password provided", HttpStatus.BAD_REQUEST),
+    UPLOAD_FAILED(3008, "Image upload failed", HttpStatus.BAD_REQUEST),
+    INVALID_JSON(3009, "Invalid JSON format", HttpStatus.BAD_REQUEST),
     // ===== Resource not found =====
     USER_NOT_FOUND(4001, "User not found", HttpStatus.NOT_FOUND),
     PRODUCT_NOT_FOUND(4002, "Product not found", HttpStatus.NOT_FOUND),

@@ -47,7 +47,10 @@ spring:
           starttls:
             enable: true
 
-
+cloudinary:
+  cloud-name: dx3mcnnfa
+  api-key: 763191867466888
+  api-secret: AvAmuie9XZJ96n00-dkGdPGH6ho
 
 app:
   admin:

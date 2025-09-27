@@ -1,4 +1,11 @@
 package com.possystem.backend.product.service;
 
-public class ProductService {
+import com.possystem.backend.product.dto.ProductRequest;
+import com.possystem.backend.product.dto.ProductResponse;
+import org.springframework.data.domain.Page;
+import org.springframework.web.multipart.MultipartFile;
+
+public interface ProductService {
+    ProductResponse create(ProductRequest request, MultipartFile file);
+    Page<ProductResponse> getProducts(int page, int size);
 }
