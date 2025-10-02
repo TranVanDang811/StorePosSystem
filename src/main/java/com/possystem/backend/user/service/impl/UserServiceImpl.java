@@ -4,11 +4,14 @@ import com.possystem.backend.common.constant.PredefinedRole;
 import com.possystem.backend.common.enums.UserStatus;
 import com.possystem.backend.common.exception.AppException;
 import com.possystem.backend.common.exception.ErrorCode;
+import com.possystem.backend.common.util.mapper.CustomerProfileMapper;
+import com.possystem.backend.common.util.mapper.EmployeeProfileMapper;
 import com.possystem.backend.common.util.mapper.UserMapper;
 import com.possystem.backend.role.entity.Role;
 import com.possystem.backend.role.repository.RoleRepository;
 import com.possystem.backend.user.dto.UserCreationRequest;
 import com.possystem.backend.user.dto.UserResponse;
+import com.possystem.backend.user.dto.UserUpdateRequest;
 import com.possystem.backend.user.entity.User;
 import com.possystem.backend.user.repository.UserRepository;
 import com.possystem.backend.user.service.UserService;
@@ -39,6 +42,8 @@ public class UserServiceImpl implements UserService {
     UserRepository userRepository;
     RoleRepository roleRepository;
     PasswordEncoder passwordEncoder;
+    CustomerProfileMapper customerProfileMapper;
+    EmployeeProfileMapper employeeProfileMapper;
     @Transactional
     @PreAuthorize("hasRole('ADMIN')")
     public UserResponse createUser(UserCreationRequest request) {
@@ -181,5 +186,32 @@ public class UserServiceImpl implements UserService {
         user.setPassword(passwordEncoder.encode(newPassword));
         userRepository.save(user);
     }
+
+    @PreAuthorize("hasRole('ADMIN')")
+    public UserResponse updateUser(String id, UserUpdateRequest request) {
+        // Tìm user theo id
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
+
+        // Cập nhật thông tin profile
+        if (user.getCustomerProfile() != null && request.getCustomerProfile() != null) {
+            customerProfileMapper.updateCustomerProfileFromDto(request.getCustomerProfile(), user.getCustomerProfile());
+        }
+
+        if (user.getEmployeeProfile() != null && request.getEmployeeProfile() != null) {
+            employeeProfileMapper.updateEmployeeProfileFromDto(request.getEmployeeProfile(), user.getEmployeeProfile());
+        }
+
+        try {
+            user = userRepository.save(user);
+        } catch (DataIntegrityViolationException exception) {
+            throw new AppException(ErrorCode.USERNAME_ALREADY_EXISTS, exception);
+        }
+
+        userMapper.updateUser(user, request);
+
+        return userMapper.toUserResponse(userRepository.save(user));
+    }
+
 }
 

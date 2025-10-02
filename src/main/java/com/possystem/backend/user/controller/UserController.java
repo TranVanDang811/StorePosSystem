@@ -5,6 +5,7 @@ import com.possystem.backend.common.response.ApiResponse;
 import com.possystem.backend.user.dto.ChangePasswordRequest;
 import com.possystem.backend.user.dto.UserCreationRequest;
 import com.possystem.backend.user.dto.UserResponse;
+import com.possystem.backend.user.dto.UserUpdateRequest;
 import com.possystem.backend.user.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -117,6 +118,15 @@ public class UserController {
         userService.changePassword(userId, request.getOldPassword(), request.getNewPassword());
         return ApiResponse.<Void>builder()
                 .message("Password updated successfully")
+                .build();
+    }
+
+    // Update user information by id
+    @PutMapping("/{userId}")
+    @Operation(summary = "Supplier Update", description = "Update supplier information by ID")
+    ApiResponse<UserResponse> updateUser(@PathVariable String userId, @RequestBody UserUpdateRequest request) {
+        return ApiResponse.<UserResponse>builder()
+                .result(userService.updateUser(userId, request))
                 .build();
     }
 }

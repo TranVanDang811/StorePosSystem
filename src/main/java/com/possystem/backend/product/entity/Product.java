@@ -20,6 +20,7 @@ import java.time.LocalDate;
 @FieldDefaults(level = AccessLevel.PRIVATE)
 @Entity
 public class Product extends AbstractEntity {
+    String productCode; // Mã sản phẩm
     String name;          // Tên: Đường, Sữa, Trà sữa, Bánh kem
     BigDecimal price;     // Giá bán (0 nếu là nguyên liệu)
     BigDecimal cost;      // Giá nhập trung bình

@@ -8,7 +8,6 @@ import lombok.experimental.FieldDefaults;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.Set;
 
 @Data
 @Builder
@@ -17,6 +16,7 @@ import java.util.Set;
 @FieldDefaults(level = AccessLevel.PRIVATE)
 public class ProductResponse {
     String id;
+    String productCode;
     String name;
     BigDecimal price;
     BigDecimal cost;

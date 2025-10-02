@@ -12,6 +12,7 @@ public interface ProductMapper {
     Product toProduct(ProductRequest request);
 
     @Mapping(target = "id", source = "id")
+    @Mapping(target = "productCode", source = "productCode")
     @Mapping(target = "imageUrl", source = "imageUrl")
     @Mapping(target = "category", source = "category")
     @Mapping(target = "createdAt", source = "createdAt")

@@ -1,4 +1,4 @@
-package com.possystem.backend.product.dto;
+package com.possystem.backend.supplier.dto;
 
 import lombok.*;
 import lombok.experimental.FieldDefaults;
@@ -8,8 +8,10 @@ import lombok.experimental.FieldDefaults;
 @NoArgsConstructor
 @AllArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE)
-public class ProductImageResponse {
+public class SupplierResponse {
     String id;
-    String imageUrl;
-    String productId;
+    String name;
+    String phone;
+    String email;
+    String address;
 }

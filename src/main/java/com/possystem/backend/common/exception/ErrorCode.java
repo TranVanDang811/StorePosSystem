@@ -38,14 +38,15 @@ public enum ErrorCode {
     CART_NOT_FOUND(4004, "Cart not found", HttpStatus.NOT_FOUND),
     CATEGORY_NOT_FOUND(4005, "Category not found", HttpStatus.NOT_FOUND),
     SUPPLIER_NOT_FOUND(4006, "Supplier not found", HttpStatus.NOT_FOUND),
-    ROLE_NOT_FOUND(4006, "Role not found", HttpStatus.NOT_FOUND),
+    ROLE_NOT_FOUND(4007, "Role not found", HttpStatus.NOT_FOUND),
+    INVALID_STATUS(4008, "INVALID STATUS", HttpStatus.NOT_FOUND),
     // ===== Business rules =====
     ORDER_ALREADY_SHIPPED(5001, "Cannot delete a shipped order", HttpStatus.BAD_REQUEST),
     CANNOT_CANCEL_ORDER(5002, "Cannot cancel this order in its current state", HttpStatus.CONFLICT),
     SUPPLIER_NAME_ALREADY_EXISTS(5003, "Supplier name already exists", HttpStatus.CONFLICT),
     DUPLICATE_RESOURCE(5004,"Repeat data.",HttpStatus.CONFLICT),
-    USERNAME_ALREADY_EXISTS(5007, "Username already exists", HttpStatus.CONFLICT);
-
+    USERNAME_ALREADY_EXISTS(5007, "Username already exists", HttpStatus.CONFLICT),
+    NAME_SUPPLIER_NOT_EXISTS(5008, "Name supplier not exists", HttpStatus.CONFLICT);
 
     private final int code;
     private final String message;

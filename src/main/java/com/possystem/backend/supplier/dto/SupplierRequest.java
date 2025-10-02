@@ -1,17 +1,16 @@
-package com.possystem.backend.entity;
+package com.possystem.backend.supplier.dto;
 
-import jakarta.persistence.Entity;
-import lombok.*;
+import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 import lombok.experimental.FieldDefaults;
 
-@Getter
-@Setter
-@Builder(toBuilder = true)
+@Data
 @NoArgsConstructor
 @AllArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE)
-@Entity
-public class Supplier extends AbstractEntity{
+public class SupplierRequest {
     String name;
 
     String phone;

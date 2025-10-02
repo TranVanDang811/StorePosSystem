@@ -1,14 +1,17 @@
-package com.possystem.backend.product.dto;
+package com.possystem.backend.importorder.dto;
 
 import lombok.*;
 import lombok.experimental.FieldDefaults;
+
+import java.math.BigDecimal;
 
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE)
-public class ProductImageRequest {
-    String imageUrl;
+public class ImportOrderDetailRequest {
     String productId;
+    int quantity;
+    BigDecimal importPrice;
 }

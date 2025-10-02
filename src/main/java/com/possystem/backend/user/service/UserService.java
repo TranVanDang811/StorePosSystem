@@ -3,6 +3,7 @@ package com.possystem.backend.user.service;
 import com.possystem.backend.common.enums.UserStatus;
 import com.possystem.backend.user.dto.UserCreationRequest;
 import com.possystem.backend.user.dto.UserResponse;
+import com.possystem.backend.user.dto.UserUpdateRequest;
 import org.springframework.data.domain.Page;
 
 public interface  UserService {
@@ -14,4 +15,5 @@ public interface  UserService {
     UserResponse changerStatus(String userId, UserStatus status);
     UserResponse updateRole(String userId, String roleName);
     void changePassword(String userId, String oldPassword, String newPassword);
+    UserResponse updateUser(String id, UserUpdateRequest request);
 }

@@ -14,6 +14,7 @@ import java.time.LocalDate;
 @AllArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE)
 public class ProductRequest {
+    String productCode;
     String name;
     BigDecimal price;
     BigDecimal cost;
