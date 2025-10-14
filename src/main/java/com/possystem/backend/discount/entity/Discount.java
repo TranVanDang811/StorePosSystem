@@ -1,12 +1,11 @@
-package com.possystem.backend.entity;
+package com.possystem.backend.discount.entity;
 
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
+import com.possystem.backend.common.enums.DiscountType;
+import jakarta.persistence.*;
 import lombok.*;
 import lombok.experimental.FieldDefaults;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 @Getter
 @Setter
@@ -19,19 +18,22 @@ public class Discount {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     String id;
-
     String name;
+    String code;// mã giảm giá
+    String description;
 
-    double discountRate; // tỷ lệ giảm giá (ví dụ 10% -> 0.1)
+    @Column(nullable = false)
+    BigDecimal value;
+
+    boolean active;
 
     LocalDateTime startDate;
 
     LocalDateTime endDate;
 
-    boolean active;
-
-
-    String code; // mã giảm giá
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    DiscountType discountType;
 
     public boolean isCurrentlyValid() {
         LocalDateTime now = LocalDateTime.now();

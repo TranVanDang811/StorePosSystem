@@ -1,6 +1,6 @@
 package com.possystem.backend.category.entity;
 
-import com.possystem.backend.entity.AbstractEntity;
+import com.possystem.backend.common.entity.AbstractEntity;
 import com.possystem.backend.product.entity.Product;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Entity;

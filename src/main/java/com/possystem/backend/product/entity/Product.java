@@ -3,8 +3,7 @@ package com.possystem.backend.product.entity;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.possystem.backend.category.entity.Category;
 import com.possystem.backend.common.enums.ProductStatus;
-import com.possystem.backend.common.enums.ProductType;
-import com.possystem.backend.entity.AbstractEntity;
+import com.possystem.backend.common.entity.AbstractEntity;
 import jakarta.persistence.*;
 import lombok.*;
 import lombok.experimental.FieldDefaults;
@@ -25,7 +24,7 @@ public class Product extends AbstractEntity {
     BigDecimal price;     // Giá bán (0 nếu là nguyên liệu)
     BigDecimal cost;      // Giá nhập trung bình
     String unit;          // kg, g, ml, l, cái, ly...
-    BigDecimal stock;     // tồn kho
+    int stock;     // tồn kho
     LocalDate expiryDate; // hạn sử dụng (nếu có)
     String imageUrl;
 

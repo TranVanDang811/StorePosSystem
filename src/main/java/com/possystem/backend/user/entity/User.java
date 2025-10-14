@@ -1,7 +1,7 @@
 package com.possystem.backend.user.entity;
 
 import com.fasterxml.jackson.annotation.JsonManagedReference;
-import com.possystem.backend.entity.AbstractEntity;
+import com.possystem.backend.common.entity.AbstractEntity;
 
 import com.possystem.backend.common.enums.UserStatus;
 import com.possystem.backend.role.entity.Role;

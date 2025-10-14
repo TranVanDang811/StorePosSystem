@@ -29,6 +29,8 @@ public class ImportOrder {
 
     String note;
 
+    int totalQuantity;
+
     BigDecimal totalPrice;
 
     @Enumerated(EnumType.STRING)

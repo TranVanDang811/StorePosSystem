@@ -1,4 +1,4 @@
-package com.possystem.backend.entity;
+package com.possystem.backend.common.entity;
 
 import com.possystem.backend.user.entity.User;
 import jakarta.persistence.*;

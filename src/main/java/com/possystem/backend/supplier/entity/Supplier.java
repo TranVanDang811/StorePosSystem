@@ -1,6 +1,6 @@
 package com.possystem.backend.supplier.entity;
 
-import com.possystem.backend.entity.AbstractEntity;
+import com.possystem.backend.common.entity.AbstractEntity;
 import jakarta.persistence.Entity;
 import lombok.*;
 import lombok.experimental.FieldDefaults;

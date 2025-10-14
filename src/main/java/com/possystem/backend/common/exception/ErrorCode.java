@@ -31,6 +31,12 @@ public enum ErrorCode {
     INVALID_PASSWORD(3007,"Incorrect old password provided", HttpStatus.BAD_REQUEST),
     UPLOAD_FAILED(3008, "Image upload failed", HttpStatus.BAD_REQUEST),
     INVALID_JSON(3009, "Invalid JSON format", HttpStatus.BAD_REQUEST),
+    COUPON_INVALID(3010,"The coupon code has expired or is not yet valid.",HttpStatus.BAD_REQUEST),
+    INVALID_DISCOUNT_CODE(3011,"Discount invalid",HttpStatus.BAD_REQUEST),
+    INVALID_ORDER_AMOUNT(3012,"Invalid order amount",HttpStatus.BAD_REQUEST),
+    PAYMENT_NOT_REFUNDABLE(3013,"This payment cannot be refunded.",HttpStatus.BAD_REQUEST),
+    INVALID_REFUND_AMOUNT(3014, "Invalid refund amount.",HttpStatus.BAD_REQUEST),
+    JSON_PARSE_ERROR(3015,"Invalid or unreadable JSON format in request body.",HttpStatus.BAD_REQUEST),
     // ===== Resource not found =====
     USER_NOT_FOUND(4001, "User not found", HttpStatus.NOT_FOUND),
     PRODUCT_NOT_FOUND(4002, "Product not found", HttpStatus.NOT_FOUND),
@@ -40,13 +46,22 @@ public enum ErrorCode {
     SUPPLIER_NOT_FOUND(4006, "Supplier not found", HttpStatus.NOT_FOUND),
     ROLE_NOT_FOUND(4007, "Role not found", HttpStatus.NOT_FOUND),
     INVALID_STATUS(4008, "INVALID STATUS", HttpStatus.NOT_FOUND),
+    IMPORT_ORDER_NOT_FOUND(4009, "Import Order not found", HttpStatus.NOT_FOUND),
+    DISCOUNT_NOT_FOUND_MESSAGE(4010, "Discount not found with id:", HttpStatus.NOT_FOUND),
+    DISCOUNT_NOT_ACTIVE(4011,"Discount not active",HttpStatus.NOT_FOUND),
+    DISCOUNT_NOT_FOUND(4012,"Discount not found",HttpStatus.NOT_FOUND),
+    NOT_ENOUGH_POINTS(4013,"Not enough points to use",HttpStatus.NOT_FOUND),
+    PAYMENT_NOT_FOUND(4014,"Payment not found",HttpStatus.NOT_FOUND),
     // ===== Business rules =====
     ORDER_ALREADY_SHIPPED(5001, "Cannot delete a shipped order", HttpStatus.BAD_REQUEST),
     CANNOT_CANCEL_ORDER(5002, "Cannot cancel this order in its current state", HttpStatus.CONFLICT),
-    SUPPLIER_NAME_ALREADY_EXISTS(5003, "Supplier name already exists", HttpStatus.CONFLICT),
+    SUPPLIER_NAME_ALREADY_EXISTS(5003, "Supplier name already exists", HttpStatus.BAD_REQUEST),
     DUPLICATE_RESOURCE(5004,"Repeat data.",HttpStatus.CONFLICT),
-    USERNAME_ALREADY_EXISTS(5007, "Username already exists", HttpStatus.CONFLICT),
-    NAME_SUPPLIER_NOT_EXISTS(5008, "Name supplier not exists", HttpStatus.CONFLICT);
+    COUPON_NOT_EXISTS(5005,"Coupon code does not exist:",HttpStatus.CONFLICT),
+    PAYMENT_ALREADY_EXISTS(5006, "Payment already exists", HttpStatus.BAD_REQUEST),
+    USERNAME_ALREADY_EXISTS(5007, "Username already exists", HttpStatus.BAD_REQUEST),
+    ORDER_NOT_EXISTED(5008, "Order not existed", HttpStatus.CONFLICT),
+    NAME_SUPPLIER_NOT_EXISTS(5009, "Name supplier not exists", HttpStatus.CONFLICT);
 
     private final int code;
     private final String message;

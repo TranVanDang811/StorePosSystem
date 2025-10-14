@@ -1,4 +1,4 @@
-package com.possystem.backend.entity;
+package com.possystem.backend.common.entity;
 
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;

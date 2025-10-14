@@ -18,6 +18,7 @@ public class ImportOrderResponse {
     String note;
     ImportStatus status;
     LocalDateTime importDate;
+    int totalQuantity;
     BigDecimal totalPrice;
     String supplierId;
     String supplierName;
