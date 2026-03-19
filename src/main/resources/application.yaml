@@ -12,7 +12,7 @@ spring:
 
 
   datasource:
-    url: ${DBMS_CONNECTION:jdbc:mysql://localhost:3306/backend}
+    url: ${DBMS_CONNECTION:jdbc:mysql://mysql-9.4.0:3306/backend}
     driverClassName: "com.mysql.cj.jdbc.Driver"
     username: ${DBMS_USERNAME:root}
     password: ${DBMS_PASSWORD:root}
@@ -59,8 +59,8 @@ app:
 
 jwt:
   signerKey: "tQSsEDHf81E77WDsv3M96bNnM/OtkQRr1hbmue91AG0P/s9Xr5N2MfjFBCqmBoO4"
-  valid-duration: 1800  #in second
-  refreshable-duration: 604800 # in seconds
+  valid-duration: 720  #in second
+  refreshable-duration: 86400 # in seconds
 
 logging:
   level:

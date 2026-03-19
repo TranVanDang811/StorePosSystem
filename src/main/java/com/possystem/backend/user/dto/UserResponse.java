@@ -6,6 +6,7 @@ import com.possystem.backend.role.dto.RoleResponse;
 import lombok.*;
 import lombok.experimental.FieldDefaults;
 
+import java.time.LocalDateTime;
 import java.util.Set;
 
 @Data
@@ -23,4 +24,6 @@ public class UserResponse {
     Set<RoleResponse> roles;
     CustomerProfileRequest customerProfile;
     EmployeeProfileRequest employeeProfile;
+    LocalDateTime createdAt;
+    LocalDateTime updatedAt;
 }

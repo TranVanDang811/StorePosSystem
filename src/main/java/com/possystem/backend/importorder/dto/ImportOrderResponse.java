@@ -1,5 +1,6 @@
 package com.possystem.backend.importorder.dto;
 
+import com.possystem.backend.common.enums.ConfirmStatus;
 import com.possystem.backend.common.enums.ImportStatus;
 import lombok.*;
 import lombok.experimental.FieldDefaults;
@@ -17,11 +18,12 @@ public class ImportOrderResponse {
     String id;
     String note;
     ImportStatus status;
+    ConfirmStatus confirmStatus;
     LocalDateTime importDate;
     int totalQuantity;
     BigDecimal totalPrice;
     String supplierId;
     String supplierName;
-
+    int totalReceivedQuantity;
     List<ImportOrderDetailResponse> importDetails;
 }

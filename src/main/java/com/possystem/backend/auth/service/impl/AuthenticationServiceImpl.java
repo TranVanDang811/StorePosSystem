@@ -143,18 +143,22 @@ public class AuthenticationServiceImpl implements AuthenticationService {
 
     private String generateRefreshToken(User user) {
         JWSHeader header = new JWSHeader(JWSAlgorithm.HS512);
+
+        Instant now = Instant.now();
+        Instant refreshExpiry = now.plus(refreshableDuration, ChronoUnit.SECONDS);
+
         JWTClaimsSet jwtClaimsSet = new JWTClaimsSet.Builder()
                 .subject(user.getUsername())
                 .issuer("backend.com")
-                .issueTime(new Date())
-                .expirationTime(Date.from(Instant.now().plus(validDuration, ChronoUnit.SECONDS)))
+                .issueTime(Date.from(now))
+                .expirationTime(Date.from(refreshExpiry)) // 🔥 đúng duration
                 .jwtID(UUID.randomUUID().toString())
                 .claim("scope", buildScope(user))
                 .build();
 
         Payload payload = new Payload(jwtClaimsSet.toJSONObject());
-
         JWSObject jwsObject = new JWSObject(header, payload);
+
         try {
             jwsObject.sign(new MACSigner(signerKey.getBytes()));
             return jwsObject.serialize();
@@ -165,22 +169,33 @@ public class AuthenticationServiceImpl implements AuthenticationService {
     }
 
 
+
     // tao token
     private String generateToken(User user) {
         JWSHeader header = new JWSHeader(JWSAlgorithm.HS512);
 
+        Instant now = Instant.now();
+
+        // Tính 00:00 ngày hôm sau
+        Instant midnight = now
+                .atZone(java.time.ZoneId.systemDefault())
+                .toLocalDate()
+                .plusDays(1)
+                .atStartOfDay(java.time.ZoneId.systemDefault())
+                .toInstant();
+
         JWTClaimsSet jwtClaimsSet = new JWTClaimsSet.Builder()
-                .subject(user.getUsername()) // dai dien nguoi dang nhap
-                .issuer("backend.com") // dang nhap tu ai
-                .issueTime(new Date()) // thoi gian tao
-                .expirationTime(Date.from(Instant.now().plus(validDuration, ChronoUnit.SECONDS)))
+                .subject(user.getUsername())
+                .issuer("backend.com")
+                .issueTime(Date.from(now))
+                .expirationTime(Date.from(midnight)) // 🔥 hết hạn lúc 00:00
                 .jwtID(UUID.randomUUID().toString())
                 .claim("scope", buildScope(user))
                 .build();
 
         Payload payload = new Payload(jwtClaimsSet.toJSONObject());
-
         JWSObject jwsObject = new JWSObject(header, payload);
+
         try {
             jwsObject.sign(new MACSigner(signerKey.getBytes()));
             return jwsObject.serialize();
@@ -189,6 +204,7 @@ public class AuthenticationServiceImpl implements AuthenticationService {
             throw new AppException(ErrorCode.TOKEN_GENERATION_FAILED);
         }
     }
+
 
     // Xây dựng danh sách quyền hạn của user
     private String buildScope(User user) {

@@ -37,17 +37,14 @@ public class UserController {
     }
     // Get a list of users with pagination
     @GetMapping
-    @Operation(summary = "Get list users", description = "Get a list of users with pagination")
+    @Operation(summary = "Get list users", description = "Get users with pagination and optional role filter")
     ApiResponse<Page<UserResponse>> getUsers(
+            @RequestParam(required = false) String role,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "5") int size) {
 
-
-        var authentication = SecurityContextHolder.getContext().getAuthentication();
-        authentication.getAuthorities().forEach(grantedAuthority -> log.info(grantedAuthority.getAuthority()));
-
         return ApiResponse.<Page<UserResponse>>builder()
-                .result(userService.getUsers(page - 1, size))
+                .result(userService.getUsers(role, page -1, size))
                 .build();
     }
     // Get information of logged-in user
@@ -60,7 +57,7 @@ public class UserController {
     }
 
     // Search user by keyword (with pagination)
-    @GetMapping("/filter")
+    @GetMapping("/search")
     @Operation(summary = "Search users", description = "Search user by keyword, role, status (with pagination)")
     public ApiResponse<Page<UserResponse>> searchUsers(
             @RequestParam(required = false) String keyword,
@@ -129,4 +126,21 @@ public class UserController {
                 .result(userService.updateUser(userId, request))
                 .build();
     }
+
+    // Get user by id
+    @GetMapping("/{userId}")
+    @Operation(summary = "Get user by ID", description = "Get user information by ID")
+    public ApiResponse<UserResponse> getUserById(@PathVariable String userId) {
+        return ApiResponse.<UserResponse>builder()
+                .result(userService.getUserById(userId))
+                .build();
+    }
+
+    @GetMapping("/phone/{phone}")
+    public ApiResponse<UserResponse> getCustomerByPhone(@PathVariable String phone) {
+        return ApiResponse.<UserResponse>builder()
+                .result(userService.getCustomerByPhone(phone))
+                .build();
+    }
+
 }

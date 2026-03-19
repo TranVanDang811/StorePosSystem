@@ -1,12 +1,15 @@
 package com.possystem.backend.importorder.service.impl;
 
+import com.possystem.backend.common.enums.ConfirmStatus;
 import com.possystem.backend.common.enums.ImportStatus;
+import com.possystem.backend.common.enums.ProductStatus;
 import com.possystem.backend.common.exception.AppException;
 import com.possystem.backend.common.exception.ErrorCode;
 import com.possystem.backend.common.util.mapper.ImportOrderMapper;
 import com.possystem.backend.importorder.dto.*;
 import com.possystem.backend.importorder.entity.ImportOrder;
 import com.possystem.backend.importorder.entity.ImportOrderDetail;
+import com.possystem.backend.importorder.repository.ImportOrderDetailRepository;
 import com.possystem.backend.importorder.repository.ImportOrderRepository;
 import com.possystem.backend.importorder.service.ImportOrderService;
 import com.possystem.backend.product.entity.Product;
@@ -51,7 +54,7 @@ public class ImportOrderServiceImpl implements ImportOrderService {
     ProductRepository productRepository;
     ImportOrderRepository importOrderRepository;
     ImportOrderMapper importOrderMapper;
-
+    ImportOrderDetailRepository importOrderDetailRepository;
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
     @Transactional
     public ImportOrderResponse createImportOrder(ImportOrderCreateRequest request) {
@@ -72,8 +75,14 @@ public class ImportOrderServiceImpl implements ImportOrderService {
             for (ImportOrderDetailRequest d : request.getImportDetails()) {
                 Product product = productRepository.findById(d.getProductId())
                         .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND, d.getProductId()));
-
+                if (!product.getSupplier().getId().equals(request.getSupplierId())) {
+                    throw new AppException(ErrorCode.PRODUCT_NOT_BELONG_TO_SUPPLIER,
+                            product.getName() + " Not owned by this supplier");
+                }
                 ImportOrderDetail detail = new ImportOrderDetail();
+                if (request.getImportDetails() == null || request.getImportDetails().isEmpty()) {
+                    throw new IllegalArgumentException("Import order must have at least one product.");
+                }
                 detail.setImportOrder(order);
                 detail.setProduct(product);
                 detail.setQuantity(d.getQuantity());
@@ -88,7 +97,8 @@ public class ImportOrderServiceImpl implements ImportOrderService {
             order.setImportDetails(details);
             order.setTotalPrice(totalPrice);
             order.setTotalQuantity(totalQuantity);
-
+            order.setStatus(ImportStatus.DRAFT);
+            order.setConfirmStatus(ConfirmStatus.UNCONFIRMED);
             ImportOrder savedOrder = importOrderRepository.save(order);
 
             ImportOrder fullOrder = importOrderRepository.findByIdWithDetails(savedOrder.getId())
@@ -109,8 +119,8 @@ public class ImportOrderServiceImpl implements ImportOrderService {
         ImportOrder order = importOrderRepository.findByIdWithDetails(orderId)
                 .orElseThrow(() -> new AppException(ErrorCode.IMPORT_ORDER_NOT_FOUND, orderId));
 
-        if (order.getStatus() != ImportStatus.NOT_CONFIRMED) {
-            throw new IllegalStateException("Only NOT_CONFIRMED orders can be updated.");
+        if (order.getStatus() != ImportStatus.DRAFT) {
+            throw new IllegalStateException("Only DRAFT orders can be updated.");
         }
 
         // Update note
@@ -145,7 +155,14 @@ public class ImportOrderServiceImpl implements ImportOrderService {
                 order.getImportDetails().add(newDetail);
             }
         }
+        List<String> requestProductIds = request.getImportDetails()
+                .stream()
+                .map(ImportOrderDetailRequest::getProductId)
+                .toList();
 
+        order.getImportDetails().removeIf(detail ->
+                !requestProductIds.contains(detail.getProduct().getId())
+        );
         // After updating, recalculate the total.
         for (ImportOrderDetail detail : order.getImportDetails()) {
             BigDecimal lineTotal = detail.getImportPrice().multiply(BigDecimal.valueOf(detail.getQuantity()));
@@ -175,34 +192,78 @@ public class ImportOrderServiceImpl implements ImportOrderService {
         return new ImportOrderStatisticResponse(totalOrders, totalProducts, totalAmount);
     }
 
-    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
     @Transactional
-    public void confirmImportOrder(String orderId) {
-        ImportOrder order = importOrderRepository.findById(orderId)
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
+    public ImportOrderResponse confirmAndFinalize(String orderId) {
+
+        ImportOrder order = importOrderRepository.findByIdWithDetails(orderId)
                 .orElseThrow(() -> new AppException(ErrorCode.IMPORT_ORDER_NOT_FOUND));
 
-        if (order.getStatus() != ImportStatus.NOT_CONFIRMED) {
-            throw new IllegalStateException("Only DRAFT orders can be confirmed.");
+        // Không cho xử lý nếu đã hoàn tất
+        if (order.getStatus() == ImportStatus.IMPORTED) {
+            throw new IllegalStateException("Order already fully imported.");
         }
 
+        // 1️⃣ Set confirmStatus nếu chưa confirm
+        if (order.getConfirmStatus() == ConfirmStatus.UNCONFIRMED) {
+            order.setConfirmStatus(ConfirmStatus.CONFIRMED);
+        }
+
+        int totalReceived = order.getTotalReceivedQuantity();
+
+        if (totalReceived == 0) {
+            throw new IllegalStateException("No quantity has been entered.");
+        }
+
+        // 2️⃣ Cộng stock
         for (ImportOrderDetail detail : order.getImportDetails()) {
-            Product product = detail.getProduct();
-            int quantity = detail.getQuantity();
 
-            // Cập nhật tồn kho
-            product.setStock(product.getStock() + quantity);
-            productRepository.save(product);
+            int received = detail.getReceivedQuantity();
+            int confirmed = detail.getConfirmedQuantity();
+
+            int delta = received - confirmed;
+
+            if (delta > 0) {
+
+                Product product = detail.getProduct();
+
+                int newStock = product.getStock() + delta;
+                product.setStock(newStock);
+
+
+                if (product.getStatus() != ProductStatus.DISCONTINUED
+                        && newStock > 0
+                        && product.getStatus() == ProductStatus.OUT_OF_STOCK) {
+
+                    product.setStatus(ProductStatus.ACTIVE);
+                }
+
+                detail.setConfirmedQuantity(received);
+            }
         }
 
-        order.setStatus(ImportStatus.IMPORTED);
-        importOrderRepository.save(order);
+        // 3️⃣ Update ImportStatus
+        if (totalReceived >= order.getTotalQuantity()) {
+            order.setStatus(ImportStatus.IMPORTED);
+        } else {
+            order.setStatus(ImportStatus.PARTIALLY_IMPORTED);
+        }
+
+        order.setImportUpdateDate(LocalDateTime.now());
+
+        return importOrderMapper.toResponse(importOrderRepository.save(order));
     }
+
+
+
 
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
     public Page<ImportOrderResponse> getImportOrders(
             String status,
             String sortByImportDate,
             String supplierName,
+            LocalDate fromDate,
+            LocalDate toDate,
             int page,
             int size) {
 
@@ -211,27 +272,74 @@ public class ImportOrderServiceImpl implements ImportOrderService {
             importStatus = ImportStatus.valueOf(status.toUpperCase());
         }
 
+        LocalDateTime fromDateTime = null;
+        LocalDateTime toDateTime = null;
+
+        if (fromDate != null) {
+            fromDateTime = fromDate.atStartOfDay();
+        }
+
+        if (toDate != null) {
+            toDateTime = toDate.atTime(23, 59, 59);
+        }
+
         Sort sort = Sort.by("importDate");
-        sort = "DESC".equalsIgnoreCase(sortByImportDate) ? sort.descending() : sort.ascending();
+        sort = "DESC".equalsIgnoreCase(sortByImportDate)
+                ? sort.descending()
+                : sort.ascending();
 
         Pageable pageable = PageRequest.of(page, size, sort);
 
         Page<ImportOrder> ordersPage;
 
-        if (importStatus != null && supplierName != null && !supplierName.isEmpty()) {
-            ordersPage = importOrderRepository.findByStatusAndSupplier_NameContainingIgnoreCase(
-                    importStatus, supplierName, pageable);
-        } else if (importStatus != null) {
-            ordersPage = importOrderRepository.findByStatus(importStatus, pageable);
-        } else if (supplierName != null && !supplierName.isEmpty()) {
-            ordersPage = importOrderRepository.findBySupplier_NameContainingIgnoreCase(supplierName, pageable);
-        } else {
+        // filter: status + supplier + date
+        if (importStatus != null
+                && supplierName != null && !supplierName.isEmpty()
+                && fromDateTime != null && toDateTime != null) {
+
+            ordersPage = importOrderRepository
+                    .findByStatusAndSupplier_NameContainingIgnoreCaseAndImportDateBetween(
+                            importStatus, supplierName, fromDateTime, toDateTime, pageable);
+
+        }
+        // filter: date
+        else if (fromDateTime != null && toDateTime != null) {
+
+            ordersPage = importOrderRepository
+                    .findByImportDateBetween(fromDateTime, toDateTime, pageable);
+
+        }
+        // filter: status + supplier
+        else if (importStatus != null
+                && supplierName != null && !supplierName.isEmpty()) {
+
+            ordersPage = importOrderRepository
+                    .findByStatusAndSupplier_NameContainingIgnoreCase(
+                            importStatus, supplierName, pageable);
+
+        }
+        // filter: status
+        else if (importStatus != null) {
+
+            ordersPage = importOrderRepository
+                    .findByStatus(importStatus, pageable);
+
+        }
+        // filter: supplier
+        else if (supplierName != null && !supplierName.isEmpty()) {
+
+            ordersPage = importOrderRepository
+                    .findBySupplier_NameContainingIgnoreCase(supplierName, pageable);
+
+        }
+        // no filter
+        else {
+
             ordersPage = importOrderRepository.findAll(pageable);
         }
 
         return ordersPage.map(importOrderMapper::toResponse);
     }
-
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
     public ImportOrderResponse getById(String id) {
         ImportOrder order = importOrderRepository.findById(id)
@@ -242,7 +350,7 @@ public class ImportOrderServiceImpl implements ImportOrderService {
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
     @Transactional
     public void deleteImportOrder(String orderId) {
-        ImportOrder order = importOrderRepository.findById(orderId)
+        ImportOrder order = importOrderRepository.findByIdWithDetails(orderId)
                 .orElseThrow(() -> new AppException(ErrorCode.IMPORT_ORDER_NOT_FOUND));
 
         if (order.getStatus() == ImportStatus.IMPORTED) {
@@ -251,11 +359,41 @@ public class ImportOrderServiceImpl implements ImportOrderService {
 
         importOrderRepository.delete(order);
     }
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
+    public Page<ImportOrderDetailResponse> getImportOrderDetails(
+            String orderId,
+            int page,
+            int size) {
 
+        Pageable pageable = PageRequest.of(page, size);
+
+
+        if (!importOrderRepository.existsById(orderId)) {
+            throw new AppException(ErrorCode.IMPORT_ORDER_NOT_FOUND);
+        }
+
+        return importOrderDetailRepository
+                .findByImportOrderId(orderId, pageable)
+                .map(importOrderMapper::toDetailResponse);
+    }
+
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
+    public ImportOrderDetailResponse getImportOrderDetail(
+            String orderId,
+            String detailId) {
+
+        ImportOrderDetail detail =
+                importOrderDetailRepository
+                        .findByIdAndImportOrderId(detailId, orderId)
+                        .orElseThrow(() ->
+                                new AppException(ErrorCode.IMPORT_ORDER_DETAIL_NOT_FOUND));
+
+        return importOrderMapper.toDetailResponse(detail);
+    }
     //--------------
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
     public ByteArrayInputStream exportImportOrdersToExcel() {
-        List<ImportOrder> orders = importOrderRepository.findAll(); // Hoặc dùng filter if needed
+        List<ImportOrder> orders = importOrderRepository.findAll();
 
         try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             Sheet sheet = workbook.createSheet("Import Orders");
@@ -286,4 +424,41 @@ public class ImportOrderServiceImpl implements ImportOrderService {
             throw new AppException(ErrorCode.INTERNAL_SERVER_ERROR);
         }
     }
+
+    // ImportOrderService
+    @Transactional
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
+    public ImportOrderResponse receiveImportOrderDetail(
+            String orderId,
+            String detailId,
+            int receivedQuantity) {
+
+        ImportOrder order = importOrderRepository.findByIdWithDetails(orderId)
+                .orElseThrow(() -> new AppException(ErrorCode.IMPORT_ORDER_NOT_FOUND));
+
+        if (order.getStatus() == ImportStatus.IMPORTED) {
+            throw new IllegalStateException("The order has been processed and received into the warehouse.");
+        }
+
+
+        ImportOrderDetail detail = order.getImportDetails().stream()
+                .filter(d -> d.getId().equals(detailId))
+                .findFirst()
+                .orElseThrow(() -> new AppException(ErrorCode.IMPORT_ORDER_DETAIL_NOT_FOUND));
+
+        if (receivedQuantity < 0) {
+            throw new IllegalArgumentException("The number received must not be negative.");
+        }
+        if (receivedQuantity > detail.getQuantity()) {
+            throw new IllegalArgumentException("The number received exceeded the number ordered.");
+        }
+
+        detail.setReceivedQuantity(receivedQuantity);
+
+        ImportOrder saved = importOrderRepository.save(order);
+
+        return importOrderMapper.toResponse(saved);
+    }
+
+
 }

@@ -1,4 +1,8 @@
 package com.possystem.backend.common.enums;
 
-public class ShiftStatus {
+public enum ShiftStatus {
+
+    OPEN,
+    CLOSED
+
 }

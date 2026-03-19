@@ -5,7 +5,7 @@ import lombok.*;
 import lombok.experimental.FieldDefaults;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
+
 
 
 @Data
@@ -20,9 +20,9 @@ public class ProductRequest {
     BigDecimal cost;
     String unit;
     BigDecimal stock;
-    LocalDate expiryDate;
     ProductStatus status;
     String categoryName;
+    String supplierName;
     String imageUrl;
 }
 

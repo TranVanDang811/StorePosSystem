@@ -1,10 +1,5 @@
 package com.possystem.backend.order.service.impl;
 
-import com.lowagie.text.*;
-import com.lowagie.text.Font;
-import com.lowagie.text.Paragraph;
-import com.lowagie.text.pdf.PdfPTable;
-import com.lowagie.text.pdf.PdfWriter;
 import com.possystem.backend.common.enums.OrderStatus;
 import com.possystem.backend.common.exception.AppException;
 import com.possystem.backend.common.exception.ErrorCode;
@@ -22,8 +17,6 @@ import com.possystem.backend.order.repository.OrderRepository;
 import com.possystem.backend.order.service.OrderService;
 import com.possystem.backend.product.entity.Product;
 import com.possystem.backend.product.repository.ProductRepository;
-import com.possystem.backend.user.entity.CustomerProfile;
-import com.possystem.backend.user.entity.User;
 import com.possystem.backend.user.repository.CustomerProfileRepository;
 import com.possystem.backend.user.repository.UserRepository;
 import jakarta.transaction.Transactional;
@@ -31,20 +24,16 @@ import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.core.io.ByteArrayResource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 
-import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
-import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -64,28 +53,20 @@ public class OrderServiceImpl implements OrderService {
     DiscountService discountService;
     CustomerProfileRepository customerProfileRepository;
 
+    @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
     @Transactional
     public OrderResponse createOrder(OrderRequest request) {
-        // 🔹 1. Kiểm tra user
-        User user = userRepository.findById(request.getUserId())
-                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
 
-        CustomerProfile profile = user.getCustomerProfile();
-        if (profile == null) {
-            throw new AppException(ErrorCode.USER_NOT_FOUND);
-        }
-
-        // 🔹 2. Tạo đơn hàng ban đầu
+        // Khởi tạo đơn hàng
         Orders order = Orders.builder()
-                .user(user)
+                .orderCode(generateOrderCode())
                 .status(OrderStatus.PENDING)
                 .totalPrice(BigDecimal.ZERO)
                 .discountAmount(BigDecimal.ZERO)
                 .finalAmount(BigDecimal.ZERO)
-                .usedPoints(0)
                 .build();
 
-        // 🔹 3. Tạo chi tiết đơn hàng
+        // Tính tổng tiền sản phẩm
         Set<OrderDetail> orderDetails = request.getOrderDetails().stream()
                 .map(detailRequest -> {
                     Product product = productRepository.findById(detailRequest.getProductId())
@@ -103,56 +84,40 @@ public class OrderServiceImpl implements OrderService {
                 })
                 .collect(Collectors.toSet());
 
-        // 🔹 4. Tính tổng tiền
         BigDecimal totalPrice = orderDetails.stream()
                 .map(OrderDetail::getTotalPrice)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
-        order.setTotalPrice(totalPrice);
+
         order.setOrderDetails(orderDetails);
+        order.setTotalPrice(totalPrice);
 
-        // 🔹 5. Áp dụng mã giảm giá & điểm tích lũy
-        discountService.applyDiscount(order, request.getDiscountCode(), request.getUsedPoints());
+        // Áp mã giảm giá
+        discountService.applyDiscountCode(order, request.getDiscountCode());
 
-        // ✅ Nếu có điểm được dùng, trừ điểm trong hồ sơ khách hàng
-        if (request.getUsedPoints() != null && request.getUsedPoints() > 0) {
-            int usedPoints = request.getUsedPoints();
-            if (profile.getLoyaltyPoints() < usedPoints) {
-                throw new AppException(ErrorCode.NOT_ENOUGH_POINTS);
-            }
-            profile.setLoyaltyPoints(profile.getLoyaltyPoints() - usedPoints);
+        // Tính tiền cuối
+        if (order.getFinalAmount() == null || order.getFinalAmount().compareTo(BigDecimal.ZERO) == 0) {
+            BigDecimal finalAmount = order.getTotalPrice()
+                    .subtract(order.getDiscountAmount() != null ? order.getDiscountAmount() : BigDecimal.ZERO);
+
+            order.setFinalAmount(finalAmount.max(BigDecimal.ZERO));
         }
 
-        // 🔹 6. Cộng điểm thưởng (10% số tiền thực trả)
-        int earnedPoints = order.getFinalAmount()
-                .multiply(BigDecimal.valueOf(0.1))
-                .setScale(0, RoundingMode.DOWN)
-                .intValue();
-
-        profile.setLoyaltyPoints(profile.getLoyaltyPoints() + earnedPoints);
-
-        // 🔹 7. Lưu dữ liệu
+        // Lưu đơn hàng
         Orders savedOrder = orderRepository.save(order);
-        customerProfileRepository.save(profile);
 
-        // 🔹 8. Tính lại điểm còn lại
-        int remainingPoints = profile.getLoyaltyPoints();
-
-        // 🔹 9. Map sang response
-        OrderResponse response = orderMapper.toResponse(savedOrder);
-        response.setRemainingPoints(remainingPoints);
-        response.setUsedPoints(request.getUsedPoints());
-        response.setEarnedPoints(earnedPoints);
-
-        return response;
+        // Response
+        return orderMapper.toResponse(savedOrder);
     }
 
 
+    @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
     public Page<OrderResponse> getAllOrders(int page, int size) {
         Pageable pageable = PageRequest.of(page, size);
         return orderRepository.findAll(pageable)
                 .map(orderMapper::toResponse);
     }
 
+    @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
     public OrderResponse getOrderById(String orderId) {
         Orders order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_EXISTED));
@@ -203,50 +168,80 @@ public class OrderServiceImpl implements OrderService {
         return new RevenueStatsResponse((long) orders.size(), totalRevenue, totalProductsSold);
     }
 
+
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE') or hasRole('EMPLOYEE')")
-    public ResponseEntity<ByteArrayResource> printOrderInvoice(String orderId)  {
+    @Transactional
+    public void holdOrder(String orderId) {
+
         Orders order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_EXISTED));
 
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        Document document = new Document();
-        PdfWriter.getInstance(document, out);
-        document.open();
+        order.setStatus(OrderStatus.HOLD);
 
-        Font titleFont = new Font(Font.HELVETICA, 18, Font.BOLD);
-        Font normalFont = new Font(Font.HELVETICA, 12);
+        orderRepository.save(order);
+    }
 
-        document.add(new Paragraph("HÓA ĐƠN ĐƠN HÀNG #" + order.getId(), titleFont));
-        document.add(new Paragraph("Khách hàng: " + order.getUser().getFullName(), normalFont));
-        document.add(new Paragraph("Ngày đặt: " + order.getCreatedAt().toString(), normalFont));
-        document.add(new Paragraph("Trạng thái: " + order.getStatus().name(), normalFont));
-        document.add(new Paragraph(" "));
 
-        PdfPTable table = new PdfPTable(4);
-        table.setWidthPercentage(100);
-        table.addCell("Tên sản phẩm");
-        table.addCell("Giá");
-        table.addCell("Số lượng");
-        table.addCell("Thành tiền");
+    @Transactional
+    public OrderResponse updateOrder(String orderId, OrderRequest request) {
 
-        for (OrderDetail detail : order.getOrderDetails()) {
-            table.addCell(detail.getProduct().getName());
-            table.addCell(detail.getProduct().getPrice().toString());
-            table.addCell(String.valueOf(detail.getQuantity()));
-            BigDecimal total = detail.getProduct().getPrice().multiply(BigDecimal.valueOf(detail.getQuantity()));
-            table.addCell(total.toString());
+        Orders order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_EXISTED));
+
+        if(order.getStatus() == OrderStatus.PAID){
+            throw new AppException(ErrorCode.ORDER_ALREADY_PAID);
         }
 
-        document.add(table);
-        document.add(new Paragraph(" "));
-        document.add(new Paragraph("Tổng tiền: " + order.getFinalAmount().toString(), titleFont));
-        document.close();
+        order.getOrderDetails().clear();
 
-        ByteArrayResource resource = new ByteArrayResource(out.toByteArray());
+        Set<OrderDetail> details = request.getOrderDetails()
+                .stream()
+                .map(d -> {
+                    Product product = productRepository.findById(d.getProductId())
+                            .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
-        return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=order_" + orderId + ".pdf")
-                .contentType(MediaType.APPLICATION_PDF)
-                .body(resource);
+                    return OrderDetail.builder()
+                            .order(order)
+                            .product(product)
+                            .quantity(d.getQuantity())
+                            .build();
+                }).collect(Collectors.toSet());
+
+        order.setOrderDetails(details);
+
+        return orderMapper.toResponse(orderRepository.save(order));
+    }
+
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE') or hasRole('EMPLOYEE')")
+    public Page<OrderResponse> getOrdersByStatus(OrderStatus status, int page, int size) {
+
+        Pageable pageable = PageRequest.of(page, size);
+
+        return orderRepository
+                .findByStatus(status, pageable)
+                .map(orderMapper::toResponse);
+    }
+
+    private String generateOrderCode() {
+
+        String date = LocalDate.now()
+                .format(DateTimeFormatter.ofPattern("yyyyMMdd"));
+
+        String prefix = "ORD-" + date + "-";
+
+        List<Orders> lastOrders =
+                orderRepository.findLastOrderCodeOfDay(prefix, PageRequest.of(0,1));
+
+        if(lastOrders.isEmpty()){
+            return prefix + "0001";
+        }
+
+        String lastCode = lastOrders.get(0).getOrderCode();
+
+        String numberPart = lastCode.substring(lastCode.lastIndexOf("-") + 1);
+
+        int nextNumber = Integer.parseInt(numberPart) + 1;
+
+        return prefix + String.format("%04d", nextNumber);
     }
 }

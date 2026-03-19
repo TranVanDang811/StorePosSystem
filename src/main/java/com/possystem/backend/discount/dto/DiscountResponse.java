@@ -1,8 +1,10 @@
 package com.possystem.backend.discount.dto;
 
+
 import lombok.*;
 import lombok.experimental.FieldDefaults;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 @Data
 @Builder
@@ -12,7 +14,7 @@ import java.time.LocalDateTime;
 public class DiscountResponse {
     String id;
     String name;
-    double discountRate;
+    BigDecimal value;
     LocalDateTime startDate;
     LocalDateTime endDate;
     boolean active;

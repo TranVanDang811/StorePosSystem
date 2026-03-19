@@ -9,13 +9,15 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Optional;
 
 @Repository
 public interface ProductRepository extends JpaRepository<Product,String> {
     Optional<Product> findByProductCode(String productCode);
     long countByStatus(ProductStatus status);
-
+    boolean existsByProductCode(String productCode);
+    List<Product> findBySupplier_Id(String supplierId);
     @Query("""
     SELECT p FROM Product p
     WHERE (:keyword IS NULL OR LOWER(p.name) LIKE LOWER(CONCAT('%', :keyword, '%')))

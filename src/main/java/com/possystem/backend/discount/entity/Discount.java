@@ -1,6 +1,5 @@
 package com.possystem.backend.discount.entity;
 
-import com.possystem.backend.common.enums.DiscountType;
 import jakarta.persistence.*;
 import lombok.*;
 import lombok.experimental.FieldDefaults;
@@ -30,10 +29,6 @@ public class Discount {
     LocalDateTime startDate;
 
     LocalDateTime endDate;
-
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
-    DiscountType discountType;
 
     public boolean isCurrentlyValid() {
         LocalDateTime now = LocalDateTime.now();

@@ -1,5 +1,6 @@
 package com.possystem.backend.importorder.entity;
 
+import com.possystem.backend.common.enums.ConfirmStatus;
 import com.possystem.backend.common.enums.ImportStatus;
 import com.possystem.backend.supplier.entity.Supplier;
 import jakarta.persistence.*;
@@ -31,10 +32,14 @@ public class ImportOrder {
 
     int totalQuantity;
 
+
     BigDecimal totalPrice;
 
     @Enumerated(EnumType.STRING)
     ImportStatus status;
+
+    @Enumerated(EnumType.STRING)
+    ConfirmStatus confirmStatus;
 
     @OneToMany(mappedBy = "importOrder", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     List<ImportOrderDetail> importDetails = new ArrayList<>();
@@ -42,4 +47,11 @@ public class ImportOrder {
     @ManyToOne
     @JoinColumn(name = "supplier_id")
     private Supplier supplier;
+
+    @Transient
+    public int getTotalReceivedQuantity() {
+        return importDetails.stream()
+                .mapToInt(ImportOrderDetail::getReceivedQuantity)
+                .sum();
+    }
 }

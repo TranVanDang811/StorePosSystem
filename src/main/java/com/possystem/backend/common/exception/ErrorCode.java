@@ -37,6 +37,9 @@ public enum ErrorCode {
     PAYMENT_NOT_REFUNDABLE(3013,"This payment cannot be refunded.",HttpStatus.BAD_REQUEST),
     INVALID_REFUND_AMOUNT(3014, "Invalid refund amount.",HttpStatus.BAD_REQUEST),
     JSON_PARSE_ERROR(3015,"Invalid or unreadable JSON format in request body.",HttpStatus.BAD_REQUEST),
+    INVALID_PAYMENT_AMOUNT(3016,"The customer did not give enough money.",HttpStatus.BAD_REQUEST),
+    PRODUCT_NOT_BELONG_TO_SUPPLIER(3017,"Not owned by this supplier",HttpStatus.BAD_REQUEST),
+    ERROR_CREATING_ORDER_PDF(3018,"Error when creating a PDF form",HttpStatus.BAD_REQUEST),
     // ===== Resource not found =====
     USER_NOT_FOUND(4001, "User not found", HttpStatus.NOT_FOUND),
     PRODUCT_NOT_FOUND(4002, "Product not found", HttpStatus.NOT_FOUND),
@@ -52,6 +55,10 @@ public enum ErrorCode {
     DISCOUNT_NOT_FOUND(4012,"Discount not found",HttpStatus.NOT_FOUND),
     NOT_ENOUGH_POINTS(4013,"Not enough points to use",HttpStatus.NOT_FOUND),
     PAYMENT_NOT_FOUND(4014,"Payment not found",HttpStatus.NOT_FOUND),
+    IMPORT_ORDER_DETAIL_NOT_FOUND(4015, "Import Order Detail not found", HttpStatus.NOT_FOUND),
+    NO_CLOSED_SHIFT(4016,"No closed shift",HttpStatus.NOT_FOUND),
+    SHIFT_NOT_FOUND(4017,"Shift not found",HttpStatus.NOT_FOUND),
+
     // ===== Business rules =====
     ORDER_ALREADY_SHIPPED(5001, "Cannot delete a shipped order", HttpStatus.BAD_REQUEST),
     CANNOT_CANCEL_ORDER(5002, "Cannot cancel this order in its current state", HttpStatus.CONFLICT),
@@ -61,8 +68,14 @@ public enum ErrorCode {
     PAYMENT_ALREADY_EXISTS(5006, "Payment already exists", HttpStatus.BAD_REQUEST),
     USERNAME_ALREADY_EXISTS(5007, "Username already exists", HttpStatus.BAD_REQUEST),
     ORDER_NOT_EXISTED(5008, "Order not existed", HttpStatus.CONFLICT),
-    NAME_SUPPLIER_NOT_EXISTS(5009, "Name supplier not exists", HttpStatus.CONFLICT);
-
+    NAME_SUPPLIER_NOT_EXISTS(5009, "Name supplier not exists", HttpStatus.CONFLICT),
+    PRODUCT_DISCONTINUED(5010,"The word DISCONTINUED cannot be changed.",HttpStatus.BAD_REQUEST),
+    PRODUCT_OUT_OF_STOCK(5011,"Do not enable ACTIVE if stock = 0",HttpStatus.BAD_REQUEST),
+    ORDER_ALREADY_PAID(5012,"Order already paid",HttpStatus.BAD_REQUEST),
+    PRODUCT_CODE_EXISTED(5013,"Product code already exists",HttpStatus.BAD_REQUEST),
+    SHIFT_ALREADY_OPENED(5014,"Shift already opened",HttpStatus.BAD_REQUEST),
+    NO_OPENED_SHIFT(5015,"No shift opened",HttpStatus.BAD_REQUEST),
+    ;
     private final int code;
     private final String message;
     private final HttpStatus statusCode;

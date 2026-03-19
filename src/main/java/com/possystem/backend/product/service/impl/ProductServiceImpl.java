@@ -14,6 +14,8 @@ import com.possystem.backend.product.dto.ProductResponse;
 import com.possystem.backend.product.entity.Product;
 import com.possystem.backend.product.repository.ProductRepository;
 import com.possystem.backend.product.service.ProductService;
+import com.possystem.backend.supplier.entity.Supplier;
+import com.possystem.backend.supplier.repository.SupplierRepository;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
@@ -35,38 +37,38 @@ import java.util.*;
 public class ProductServiceImpl implements ProductService {
 
     CategoryRepository categoryRepository;
+    SupplierRepository supplierRepository;
     ProductRepository productRepository;
     CloudinaryService cloudinaryService;
     ProductMapper productMapper;
 
     @PreAuthorize("hasRole('ADMIN')")
     public ProductResponse create(ProductRequest request, MultipartFile file) {
+        if(productRepository.existsByProductCode(request.getProductCode())){
+            throw new AppException(ErrorCode.PRODUCT_CODE_EXISTED);
+        }
+
         Product product = productMapper.toProduct(request);
 
         Category category = categoryRepository.findByName(request.getCategoryName())
                 .orElseThrow(() -> new RuntimeException("Category not found"));
         product.setCategory(category);
 
-        if (file == null || file.isEmpty()) {
-            throw new AppException(ErrorCode.UPLOAD_FAILED);
-        }
+        Supplier supplier = supplierRepository.findByName(request.getSupplierName())
+                .orElseThrow(() -> new RuntimeException("Supplier not found"));
+        product.setSupplier(supplier);
 
-        CloudinaryUploadResult result = cloudinaryService.uploadImage(file);
-        if (result.getUrl() == null || result.getUrl().isEmpty()) {
-            throw new AppException(ErrorCode.UPLOAD_FAILED);
+        if (file != null && !file.isEmpty()) {
+            CloudinaryUploadResult result = cloudinaryService.uploadImage(file);
+            product.setImageUrl(result.getUrl());
         }
-
-      
-        product.setImageUrl(result.getUrl());
 
         product = productRepository.save(product);
-
-        log.info("Saved product: {}", product);
 
         return productMapper.toProductResponse(product);
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
     public Page<ProductResponse> getProducts(int page, int size) {
         Pageable pageable = PageRequest.of(page, size);
         return productRepository.findAll(pageable)
@@ -129,7 +131,7 @@ public class ProductServiceImpl implements ProductService {
         productRepository.delete(product);
     }
 
-
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
     public Map<String, Object> getProductStatistics() {
         Map<String, Object> stats = new HashMap<>();
 
@@ -143,11 +145,32 @@ public class ProductServiceImpl implements ProductService {
 
     @PreAuthorize("hasRole('ADMIN')")
     public ProductResponse changerStatus(String productId, ProductStatus status) {
+
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
+        // ❌ Không cho thay đổi nếu đã DISCONTINUED
+        if (product.getStatus() == ProductStatus.DISCONTINUED) {
+            throw new AppException(ErrorCode.PRODUCT_DISCONTINUED);
+        }
+
+        // ❌ Không cho ACTIVE nếu stock = 0
+        if (status == ProductStatus.ACTIVE && product.getStock() <= 0) {
+            throw new AppException(ErrorCode.PRODUCT_OUT_OF_STOCK);
+        }
+
+        // ✅ Nếu chuyển sang DISCONTINUED thì cho phép
         product.setStatus(status);
 
         return productMapper.toProductResponse(productRepository.save(product));
+    }
+
+    public List<ProductResponse> getProductsBySupplier(String supplierId) {
+
+
+        return productRepository.findBySupplier_Id(supplierId)
+                .stream()
+                .map(productMapper::toProductResponse)
+                .toList();
     }
 }

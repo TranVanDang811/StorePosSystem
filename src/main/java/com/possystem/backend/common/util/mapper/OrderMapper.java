@@ -7,17 +7,14 @@ import org.mapstruct.Mapping;
 
 @Mapper(componentModel = "spring", uses = {OrderDetailMapper.class})
 public interface OrderMapper {
+    @Mapping(target = "orderCode", source = "orderCode")
 
-    @Mapping(target = "userId", source = "user.id")
-    @Mapping(target = "fullName", source = "user.fullName")
-    @Mapping(target = "orderDetails", source = "orderDetails")
+       @Mapping(target = "orderDetails", source = "orderDetails")
     @Mapping(target = "status", source = "status")
     @Mapping(target = "discountCode", source = "discountCode")
-    @Mapping(target = "usedPoints", source = "usedPoints")
-    @Mapping(target = "pointDiscount", source = "pointDiscount")
+
     @Mapping(target = "createdAt", source = "createdAt")
     @Mapping(target = "updatedAt", source = "updatedAt")
-
     OrderResponse toResponse(Orders order);
 
 

@@ -1,6 +1,5 @@
 package com.possystem.backend.user.service.impl;
 
-import com.possystem.backend.common.constant.PredefinedRole;
 import com.possystem.backend.common.enums.UserStatus;
 import com.possystem.backend.common.exception.AppException;
 import com.possystem.backend.common.exception.ErrorCode;
@@ -26,6 +25,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.prepost.PostAuthorize;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -45,7 +45,7 @@ public class UserServiceImpl implements UserService {
     CustomerProfileMapper customerProfileMapper;
     EmployeeProfileMapper employeeProfileMapper;
     @Transactional
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
     public UserResponse createUser(UserCreationRequest request) {
 
         User user = userMapper.toUser(request);
@@ -85,11 +85,19 @@ public class UserServiceImpl implements UserService {
         return userMapper.toUserResponse(user);
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
-    public Page<UserResponse> getUsers(int page, int size) {
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
+    public Page<UserResponse> getUsers(String roleName, int page, int size) {
+
         Pageable pageable = PageRequest.of(page, size);
-        return userRepository.findAll(pageable)
-                .map(userMapper::toUserResponse);
+        Page<User> users;
+
+        if (roleName != null && !roleName.isBlank()) {
+            users = userRepository.findByRoles_Name(roleName, pageable);
+        } else {
+            users = userRepository.findAll(pageable);
+        }
+
+        return users.map(userMapper::toUserResponse);
     }
 
     @PostAuthorize("hasRole('ADMIN') or returnObject.username == authentication.name")
@@ -104,6 +112,7 @@ public class UserServiceImpl implements UserService {
 
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
     public Page<UserResponse> searchUsers(String keyword, String roleName, UserStatus status, int page, int size) {
+
         Pageable pageable = PageRequest.of(page, size);
         Page<User> users;
 
@@ -112,20 +121,43 @@ public class UserServiceImpl implements UserService {
         boolean hasStatus = status != null;
 
         if (hasKeyword && hasRole && hasStatus) {
-            users = userRepository.findByFullNameContainingIgnoreCaseAndRoles_NameAndStatus(keyword, roleName, status, pageable);
+
+            users = userRepository
+                    .findByUsernameContainingIgnoreCaseOrFullNameContainingIgnoreCaseAndRoles_NameAndStatus(
+                            keyword, keyword, roleName, status, pageable);
+
         } else if (hasKeyword && hasRole) {
-            users = userRepository.findByFullNameContainingIgnoreCaseAndRoles_Name(keyword, roleName, pageable);
+
+            users = userRepository
+                    .findByUsernameContainingIgnoreCaseOrFullNameContainingIgnoreCaseAndRoles_Name(
+                            keyword, keyword, roleName, pageable);
+
         } else if (hasKeyword && hasStatus) {
-            users = userRepository.findByFullNameContainingIgnoreCaseAndStatus(keyword, status, pageable);
+
+            users = userRepository
+                    .findByUsernameContainingIgnoreCaseOrFullNameContainingIgnoreCaseAndStatus(
+                            keyword, keyword, status, pageable);
+
         } else if (hasRole && hasStatus) {
+
             users = userRepository.findByRoles_NameAndStatus(roleName, status, pageable);
+
         } else if (hasKeyword) {
-            users = userRepository.findByFullNameContainingIgnoreCase(keyword, pageable);
+
+            users = userRepository
+                    .findByUsernameContainingIgnoreCaseOrFullNameContainingIgnoreCase(
+                            keyword, keyword, pageable);
+
         } else if (hasRole) {
+
             users = userRepository.findByRoles_Name(roleName, pageable);
+
         } else if (hasStatus) {
+
             users = userRepository.findByStatus(status, pageable);
+
         } else {
+
             users = userRepository.findAll(pageable);
         }
 
@@ -213,5 +245,37 @@ public class UserServiceImpl implements UserService {
         return userMapper.toUserResponse(userRepository.save(user));
     }
 
+    @PostAuthorize("hasRole('ADMIN') or returnObject.username == authentication.name")
+    public UserResponse getUserById(String userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
+
+        return userMapper.toUserResponse(user);
+    }
+
+    @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
+    public UserResponse getCustomerByPhone(String phone) {
+
+        User user = userRepository.findByPhone(phone)
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
+
+        return userMapper.toUserResponse(user);
+    }
+
+    @Override
+    public User getCurrentUser() {
+
+        Authentication authentication =
+                SecurityContextHolder.getContext().getAuthentication();
+
+        if (authentication == null || !authentication.isAuthenticated()) {
+            throw new AppException(ErrorCode.UNAUTHENTICATED);
+        }
+
+        String username = authentication.getName();
+
+        return userRepository.findByUsername(username)
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
+    }
 }
 

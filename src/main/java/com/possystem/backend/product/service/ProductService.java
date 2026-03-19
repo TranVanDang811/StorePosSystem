@@ -7,6 +7,7 @@ import com.possystem.backend.product.dto.ProductResponse;
 import org.springframework.data.domain.Page;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.List;
 import java.util.Map;
 
 public interface ProductService {
@@ -17,4 +18,5 @@ public interface ProductService {
     void deleteProduct(String productId);
     Map<String, Object> getProductStatistics();
     ProductResponse changerStatus(String productId, ProductStatus status);
+    public List<ProductResponse> getProductsBySupplier(String supplierId);
 }

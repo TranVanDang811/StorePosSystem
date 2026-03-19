@@ -18,7 +18,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
+
 
 @Slf4j
 @Service
@@ -34,14 +34,14 @@ public class CategoryServiceImpl implements CategoryService {
         return categoryMapper.toCategoryResponse(category);
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
     public CategoryResponse getById(String categoryId) {
         Category category = categoryRepository.findById(categoryId)
                 .orElseThrow(() -> new AppException(ErrorCode.CATEGORY_NOT_FOUND));
         return categoryMapper.toCategoryResponse(category);
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
     public Page<CategoryResponse> getAll(int page, int size) {
         Pageable pageable = PageRequest.of(page, size);
         return categoryRepository.findAll(pageable).map(categoryMapper::toCategoryResponse);

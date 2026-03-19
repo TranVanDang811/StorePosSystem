@@ -19,7 +19,8 @@ public class ImportOrderDetail {
     String id;
 
     int quantity;
-
+    int receivedQuantity;
+    int confirmedQuantity;
     BigDecimal importPrice;
 
     @ManyToOne(fetch = FetchType.LAZY)

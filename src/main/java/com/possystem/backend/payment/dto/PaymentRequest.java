@@ -12,7 +12,10 @@ import java.math.BigDecimal;
 @AllArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE)
 public class PaymentRequest {
+    String userPhone;
+    Integer usedPoints;
     String orderId;
+    BigDecimal cashReceived;
     PaymentMethod method;
     String note;
 }

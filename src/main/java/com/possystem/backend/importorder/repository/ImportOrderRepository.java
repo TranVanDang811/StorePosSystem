@@ -20,8 +20,24 @@ public interface ImportOrderRepository extends JpaRepository<ImportOrder,String>
     Page<ImportOrder> findByStatusAndSupplier_NameContainingIgnoreCase(ImportStatus status, String supplierName, Pageable pageable);
 
     Page<ImportOrder> findBySupplier_NameContainingIgnoreCase(String supplierName, Pageable pageable);
-
-
+    Page<ImportOrder> findByImportDateBetweenAndStatus(
+            LocalDateTime from,
+            LocalDateTime to,
+            ImportStatus status,
+            Pageable pageable
+    );
+    Page<ImportOrder> findByImportDateBetween(
+            LocalDateTime from,
+            LocalDateTime to,
+            Pageable pageable
+    );
+    Page<ImportOrder> findByStatusAndSupplier_NameContainingIgnoreCaseAndImportDateBetween(
+            ImportStatus status,
+            String supplierName,
+            LocalDateTime from,
+            LocalDateTime to,
+            Pageable pageable
+    );
     @EntityGraph(attributePaths = "importDetails")
     @Query("SELECT o FROM ImportOrder o WHERE o.id = :id")
     Optional<ImportOrder> findByIdWithDetails(@Param("id") String id);

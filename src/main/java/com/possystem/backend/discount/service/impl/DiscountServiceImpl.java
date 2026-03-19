@@ -1,11 +1,12 @@
 package com.possystem.backend.discount.service.impl;
 
-import com.possystem.backend.common.enums.DiscountType;
+
 import com.possystem.backend.common.exception.AppException;
 import com.possystem.backend.common.exception.ErrorCode;
 import com.possystem.backend.common.util.mapper.DiscountMapper;
 import com.possystem.backend.discount.dto.DiscountRequest;
 import com.possystem.backend.discount.dto.DiscountResponse;
+import com.possystem.backend.discount.dto.PointDiscountResult;
 import com.possystem.backend.discount.entity.Discount;
 import com.possystem.backend.discount.repository.DiscountRepository;
 import com.possystem.backend.discount.service.DiscountService;
@@ -18,6 +19,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -33,6 +35,8 @@ public class DiscountServiceImpl implements DiscountService{
     final DiscountRepository discountRepository;
     final DiscountMapper discountMapper;
     CustomerProfileRepository customerProfileRepository;
+
+
     private boolean isActive(LocalDateTime startDate, LocalDateTime endDate) {
         LocalDateTime now = LocalDateTime.now();
         return startDate != null
@@ -41,12 +45,12 @@ public class DiscountServiceImpl implements DiscountService{
                 && (now.isBefore(endDate) || now.isEqual(endDate));
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
     @Scheduled(cron = "0 0 0 * * *")
     public void updateDiscountStatusAutomatically() {
         LocalDateTime now = LocalDateTime.now();
         log.info("-->Checking discount status at {}", now);
 
-        // 🔹 Lấy các discount còn hiệu lực hoặc mới hết hạn
         List<Discount> discounts = discountRepository.findAllActiveOrRecentlyExpired(now.minusDays(1));
 
         int updatedCount = 0;
@@ -63,7 +67,7 @@ public class DiscountServiceImpl implements DiscountService{
 
         log.info("---->Completed status update {} discount.", updatedCount);
     }
-
+    @PreAuthorize("hasRole('ADMIN')")
     public DiscountResponse createDiscount(DiscountRequest request) {
         Discount discount = new Discount();
 
@@ -71,7 +75,7 @@ public class DiscountServiceImpl implements DiscountService{
         discount.setStartDate(request.getStartDate());
         discount.setEndDate(request.getEndDate());
         discount.setCode(request.getCode());
-
+        discount.setValue(request.getValue());
 
         discount.setActive(isActive(discount.getStartDate(), discount.getEndDate()));
 
@@ -81,7 +85,7 @@ public class DiscountServiceImpl implements DiscountService{
 
         return discountMapper.toDiscountResponse(savedDiscount);
     }
-
+    @PreAuthorize("hasRole('ADMIN')")
     public DiscountResponse updateDiscount(String id, DiscountRequest request) {
         Discount discount = discountRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.DISCOUNT_NOT_FOUND_MESSAGE,id));
@@ -97,27 +101,27 @@ public class DiscountServiceImpl implements DiscountService{
     }
 
 
-
+    @PreAuthorize("hasRole('ADMIN')")
     public void deleteDiscount(String id) {
         if (!discountRepository.existsById(id)) {
             throw new AppException(ErrorCode.DISCOUNT_NOT_FOUND_MESSAGE,id);
         }
         discountRepository.deleteById(id);
     }
-
+    @PreAuthorize("hasRole('ADMIN')")
     public DiscountResponse getDiscountById(String id) {
         Discount discount = discountRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.DISCOUNT_NOT_FOUND_MESSAGE,id));
         return discountMapper.toDiscountResponse(discount);
     }
-
+    @PreAuthorize("hasRole('ADMIN')")
     public List<DiscountResponse> getAllDiscounts() {
         return discountRepository.findAll()
                 .stream()
                 .map(discountMapper::toDiscountResponse)
                 .toList(); // Replaced collect with toList()
     }
-
+    @PreAuthorize("hasRole('ADMIN')")
     public List<DiscountResponse> getActiveDiscounts() {
         return discountRepository.findAll()
                 .stream()
@@ -125,7 +129,7 @@ public class DiscountServiceImpl implements DiscountService{
                 .map(discountMapper::toDiscountResponse)
                 .toList();
     }
-
+    @PreAuthorize("hasRole('ADMIN')")
     public DiscountResponse getByCode(String code) {
         Discount discount = discountRepository.findByCode(code)
                 .orElseThrow(() -> new AppException(ErrorCode.COUPON_NOT_EXISTS,code));
@@ -139,81 +143,77 @@ public class DiscountServiceImpl implements DiscountService{
         return discountMapper.toDiscountResponse(discount);
     }
 
-    @Transactional
-    public BigDecimal applyDiscount(Orders order, String discountCode, Integer usedPoints) {
-        BigDecimal discountAmount = BigDecimal.ZERO;
-        BigDecimal pointDiscount = BigDecimal.ZERO;
+    public BigDecimal applyDiscountCode(Orders order, String discountCode) {
 
-        // ✅ 1. Áp dụng mã giảm giá (nếu có)
+        BigDecimal discountAmount;
+
         if (discountCode != null && !discountCode.isBlank()) {
+
             Discount discount = discountRepository.findByCode(discountCode)
                     .orElseThrow(() -> new AppException(ErrorCode.DISCOUNT_NOT_FOUND, discountCode));
 
-            // 🔍 Kiểm tra hạn sử dụng
             LocalDateTime now = LocalDateTime.now();
-            if (discount.getStartDate() != null && now.isBefore(discount.getStartDate())
-                    || discount.getEndDate() != null && now.isAfter(discount.getEndDate())) {
+
+            if ((discount.getStartDate() != null && now.isBefore(discount.getStartDate()))
+                    || (discount.getEndDate() != null && now.isAfter(discount.getEndDate()))) {
                 throw new AppException(ErrorCode.INVALID_DISCOUNT_CODE);
             }
 
-            // 💰 Tính tiền giảm
-            if (discount.getDiscountType() == DiscountType.PERCENT) {
-                discountAmount = order.getTotalPrice()
-                        .multiply(discount.getValue().divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP));
-            } else {
-                discountAmount = discount.getValue();
-            }
+            discountAmount = discount.getValue();
 
-            // ✅ Giới hạn không vượt quá tổng tiền
+            // Không giảm quá tổng tiền
             if (discountAmount.compareTo(order.getTotalPrice()) > 0) {
                 discountAmount = order.getTotalPrice();
             }
 
             order.setDiscountCode(discountCode);
             order.setDiscountAmount(discountAmount.setScale(2, RoundingMode.HALF_UP));
+
         } else {
             order.setDiscountAmount(BigDecimal.ZERO);
         }
 
-        // ✅ 2. Áp dụng điểm khách hàng (nếu có)
-        if (usedPoints != null && usedPoints > 0) {
-            CustomerProfile profile = order.getUser().getCustomerProfile();
-            if (profile == null) {
-                throw new AppException(ErrorCode.USER_NOT_FOUND);
-            }
-
-            if (profile.getLoyaltyPoints() < usedPoints) {
-                throw new AppException(ErrorCode.NOT_ENOUGH_POINTS);
-            }
-
-            // 🔻 Trừ điểm của khách hàng
-            profile.setLoyaltyPoints(profile.getLoyaltyPoints() - usedPoints);
-
-            // 💰 1000 điểm = 1000đ
-            pointDiscount = BigDecimal.valueOf(usedPoints);
-            order.setUsedPoints(usedPoints);
-            order.setPointDiscount(pointDiscount.setScale(2, RoundingMode.HALF_UP));
-        } else {
-            order.setUsedPoints(0);
-            order.setPointDiscount(BigDecimal.ZERO);
-        }
-
-        // ✅ 3. Cập nhật tổng tiền cuối cùng
-        BigDecimal finalAmount = order.getTotalPrice()
-                .subtract(order.getDiscountAmount() != null ? order.getDiscountAmount() : BigDecimal.ZERO)
-                .subtract(order.getPointDiscount() != null ? order.getPointDiscount() : BigDecimal.ZERO);
-
-        if (finalAmount.compareTo(BigDecimal.ZERO) < 0) {
-            finalAmount = BigDecimal.ZERO; // không cho âm tiền
-        }
-
-        order.setFinalAmount(finalAmount.setScale(2, RoundingMode.HALF_UP));
-
-        // ✅ 4. Lưu lại profile (vì có trừ điểm)
-        customerProfileRepository.save(order.getUser().getCustomerProfile());
-
-        return finalAmount;
+        return order.getDiscountAmount();
     }
 
+    @Transactional
+    public PointDiscountResult applyPointDiscount(CustomerProfile profile,
+                                                  Integer requestUsedPoints,
+                                                  BigDecimal orderAmount) {
+
+        if (profile == null || requestUsedPoints == null || requestUsedPoints <= 0) {
+            return new PointDiscountResult(BigDecimal.ZERO, 0);
+        }
+
+        if (profile.getLoyaltyPoints() < requestUsedPoints) {
+            throw new AppException(ErrorCode.NOT_ENOUGH_POINTS);
+        }
+
+        // 1 point = 1đ
+        BigDecimal discountAmount = BigDecimal.valueOf(requestUsedPoints)
+                .multiply(BigDecimal.valueOf(1));
+
+        int actualUsedPoints;
+
+        // Nếu giảm vượt quá tiền đơn
+        if (discountAmount.compareTo(orderAmount) > 0) {
+
+            discountAmount = orderAmount;
+
+            actualUsedPoints = orderAmount
+                    .divide(BigDecimal.valueOf(1000))
+                    .intValue();
+        } else {
+
+            actualUsedPoints = requestUsedPoints;
+        }
+
+        // Trừ điểm
+        profile.setLoyaltyPoints(profile.getLoyaltyPoints() - actualUsedPoints);
+
+        customerProfileRepository.save(profile);
+
+        return new PointDiscountResult(discountAmount, actualUsedPoints);
+    }
 
 }

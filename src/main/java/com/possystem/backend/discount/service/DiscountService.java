@@ -2,7 +2,9 @@ package com.possystem.backend.discount.service;
 
 import com.possystem.backend.discount.dto.DiscountRequest;
 import com.possystem.backend.discount.dto.DiscountResponse;
+import com.possystem.backend.discount.dto.PointDiscountResult;
 import com.possystem.backend.order.entity.Orders;
+import com.possystem.backend.user.entity.CustomerProfile;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -15,6 +17,9 @@ public interface DiscountService {
     List<DiscountResponse> getActiveDiscounts();
     DiscountResponse getByCode(String code);
     DiscountResponse getDiscountById(String id);
-    void updateDiscountStatusAutomatically();
-    BigDecimal applyDiscount(Orders order, String discountCode, Integer usedPoints);
+    BigDecimal applyDiscountCode(Orders order, String discountCode);
+    PointDiscountResult applyPointDiscount(CustomerProfile profile,
+                                           Integer requestUsedPoints,
+                                           BigDecimal orderAmount);
+
 }

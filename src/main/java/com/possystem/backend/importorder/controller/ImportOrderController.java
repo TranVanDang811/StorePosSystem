@@ -1,12 +1,9 @@
 package com.possystem.backend.importorder.controller;
 
+import com.possystem.backend.common.enums.ImportStatus;
 import com.possystem.backend.common.response.ApiResponse;
-import com.possystem.backend.importorder.dto.ImportOrderCreateRequest;
-import com.possystem.backend.importorder.dto.ImportOrderResponse;
-import com.possystem.backend.importorder.dto.ImportOrderStatisticResponse;
-import com.possystem.backend.importorder.dto.ImportOrderUpdateRequest;
+import com.possystem.backend.importorder.dto.*;
 import com.possystem.backend.importorder.service.ImportOrderService;
-import com.possystem.backend.user.dto.UserResponse;
 import jakarta.validation.Valid;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -42,7 +39,7 @@ public class ImportOrderController {
                 .result(importOrderService.createImportOrder(request))
                 .build();
     }
-    @Operation(summary = "Update import order", description = "Update import order details (only allowed if status is NOT_CONFIRMED).")
+    @Operation(summary = "Update import order", description = "Update import order details (only allowed if status is DRAFT).")
     @PutMapping("/{orderId}")
     ApiResponse<ImportOrderResponse> updateImportOrder(
             @PathVariable String orderId,
@@ -64,32 +61,87 @@ public class ImportOrderController {
                 .build();
     }
 
+    @PutMapping("/{id}/confirm-finalize")
+    public ApiResponse<ImportOrderResponse> confirmAndFinalize(
+            @PathVariable String id) {
 
-    // Confirm warehouse receipt
-    @Operation(summary = "Confirm import order", description = "Confirm an import order to mark it as successfully imported into warehouse.")
-    @PostMapping("/{orderId}/confirm")
-    ApiResponse<Void> confirmImportOrder(@PathVariable String orderId) {
-        importOrderService.confirmImportOrder(orderId);
-        return ApiResponse.<Void>builder().message("Import order confirmed successfully.").build();
+        return ApiResponse.<ImportOrderResponse>builder()
+                .result(importOrderService.confirmAndFinalize(id))
+                .message("Import order confirmed and finalized successfully")
+                .build();
     }
 
+
     @Operation(summary = "Get list of import orders", description = "Retrieve paginated list of import orders with optional filters by supplier name, status, and date sorting.")
-    @PreAuthorize("hasRole('ADMIN')")
     @GetMapping
     public ApiResponse<Page<ImportOrderResponse>> getImportOrders(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size,
             @RequestParam(required = false) String supplierName,
-            @RequestParam(required = false) String status,             // DRAFT | IMPORTED
-            @RequestParam(required = false) String sortByImportDate     // ASC | DESC
+            @RequestParam(required = false) ImportStatus status,
+            @RequestParam(required = false) String sortByImportDate,
+
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+            LocalDate fromDate,
+
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+            LocalDate toDate
     ) {
+
         Page<ImportOrderResponse> orders = importOrderService.getImportOrders(
-                status, sortByImportDate, supplierName, page - 1, size
+                status != null ? status.name() : null,
+                sortByImportDate,
+                supplierName,
+                fromDate,
+                toDate,
+                page - 1,
+                size
         );
 
         return ApiResponse.<Page<ImportOrderResponse>>builder()
                 .result(orders)
                 .build();
+    }
+    @Operation(summary = "Cập nhật số lượng thực nhận cho một dòng chi tiết")
+    @PatchMapping("/{orderId}/receive-detail/{detailId}")
+    ApiResponse<ImportOrderResponse> updateReceivedQuantity(
+            @PathVariable String orderId,
+            @PathVariable String detailId,
+            @RequestParam int receivedQuantity) {
+
+        return ApiResponse.success(
+                importOrderService.receiveImportOrderDetail(orderId, detailId, receivedQuantity)
+        );
+    }
+
+    @GetMapping("/{orderId}/details")
+    @Operation(summary = "Get import order details with pagination")
+    public ApiResponse<Page<ImportOrderDetailResponse>> getDetails(
+            @PathVariable String orderId,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "5") int size) {
+
+        return ApiResponse.<Page<ImportOrderDetailResponse>>builder()
+                .result(
+                        importOrderService.getImportOrderDetails(
+                                orderId,
+                                page - 1,
+                                size
+                        )
+                )
+                .build();
+    }
+
+    @GetMapping("/{orderId}/details/{detailId}")
+    public ApiResponse<ImportOrderDetailResponse> getDetail(
+            @PathVariable String orderId,
+            @PathVariable String detailId) {
+
+        return ApiResponse.success(
+                importOrderService.getImportOrderDetail(orderId, detailId)
+        );
     }
     //--------------
     @Operation(summary = "Export import orders to Excel", description = "Export all import orders into an Excel (.xlsx) file.")
@@ -118,13 +170,12 @@ public class ImportOrderController {
     @Operation(summary = "Delete import order", description = "Delete an import order (only allowed if it has not been confirmed).")
     @DeleteMapping("/{orderId}")
     public ApiResponse<Void> deleteImportOrder(@PathVariable String orderId) {
-        try {
-            importOrderService.deleteImportOrder(orderId);
-            return ApiResponse.<Void>builder().message("Delete import order successfully").build();
-        } catch (Exception e) {
-            return ApiResponse.<Void>builder().message("Failed to delete import order").build();
-        }
+        importOrderService.deleteImportOrder(orderId);
+        return ApiResponse.<Void>builder()
+                .message("Delete import order successfully")
+                .build();
     }
+
 
 
 }

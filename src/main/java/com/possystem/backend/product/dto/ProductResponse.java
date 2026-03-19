@@ -2,11 +2,11 @@ package com.possystem.backend.product.dto;
 
 import com.possystem.backend.category.dto.CategoryResponse;
 import com.possystem.backend.common.enums.ProductStatus;
+import com.possystem.backend.supplier.dto.SupplierResponse;
 import lombok.*;
 import lombok.experimental.FieldDefaults;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Data
@@ -22,9 +22,9 @@ public class ProductResponse {
     BigDecimal cost;
     String unit;
     BigDecimal stock;
-    LocalDate expiryDate;
     ProductStatus status;
     CategoryResponse category;
+    SupplierResponse supplier;
     String imageUrl;
     LocalDateTime createdAt;
     LocalDateTime updateAt;

@@ -15,21 +15,13 @@ import java.util.List;
 @FieldDefaults(level = AccessLevel.PRIVATE)
 public class OrderResponse {
     String id;
-    String userId;
-    String fullName;
-
-    BigDecimal totalPrice;      // Tổng tiền ban đầu (chưa giảm)
-    String discountCode;        // Mã giảm giá (nếu có)
-    BigDecimal discountAmount;  // Số tiền giảm từ mã giảm giá
-    Integer usedPoints;         // Điểm khách hàng sử dụng để giảm
-    BigDecimal pointDiscount;   // Số tiền được giảm từ điểm (usedPoints * 1.0)
-    BigDecimal finalAmount;     // Tổng tiền phải trả cuối cùng sau giảm giá và điểm
-    Integer earnedPoints;
-    Integer remainingPoints;    // Điểm còn lại của khách hàng sau khi dùng
-
+    String orderCode;
+    BigDecimal totalPrice;
+    String discountCode;
+    BigDecimal discountAmount;
+    BigDecimal finalAmount;
     OrderStatus status;
     LocalDate createdAt;
     LocalDate updatedAt;
-
     List<OrderDetailResponse> orderDetails;
 }

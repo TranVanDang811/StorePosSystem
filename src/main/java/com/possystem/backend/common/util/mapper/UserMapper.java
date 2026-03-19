@@ -15,7 +15,13 @@ public interface UserMapper {
     @Mapping(target = "employeeProfile", source = "employeeProfile")
     User toUser(UserCreationRequest request);
 
-
+    @Mapping(target = "id", expression = "java(user.getId())")
+    @Mapping(target = "username", expression = "java(user.getUsername() != null ? user.getUsername().trim() : null)")
+    @Mapping(target = "fullName", expression = "java(user.getFullName() != null ? user.getFullName().trim() : null)")
+    @Mapping(target = "email", expression = "java(user.getEmail() != null ? user.getEmail().trim() : null)")
+    @Mapping(target = "phone", expression = "java(user.getPhone() != null ? user.getPhone().trim() : null)")
+    @Mapping(target = "createdAt", source = "createdAt")
+    @Mapping(target = "updatedAt", source = "updatedAt")
     UserResponse toUserResponse(User user);
 
     @Mapping(target = "username", ignore = true)

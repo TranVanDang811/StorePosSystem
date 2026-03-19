@@ -41,7 +41,7 @@ public class ApplicationInitConfig {
                                         RoleRepository roleRepository) {
         log.info("Initializing application.....");
         return args -> {
-            // 1. Tạo role EMPLOYEE nếu chưa có
+
             Role employeeRole = roleRepository.findByName(PredefinedRole.EMPLOYEE_ROLE)
                     .orElseGet(() -> roleRepository.save(Role.builder()
                             .name(PredefinedRole.EMPLOYEE_ROLE)
@@ -51,7 +51,7 @@ public class ApplicationInitConfig {
             Role manageRole = roleRepository.findByName(PredefinedRole.MANAGE_ROLE)
                     .orElseGet(() -> roleRepository.save(Role.builder()
                             .name(PredefinedRole.MANAGE_ROLE)
-                            .description("Customer role")
+                            .description("Manager role")
                             .build()));
             Role customerRole = roleRepository.findByName(PredefinedRole.CUSTOMER_ROLE)
                     .orElseGet(() -> roleRepository.save(Role.builder()
@@ -59,14 +59,14 @@ public class ApplicationInitConfig {
                             .description("Customer role")
                             .build()));
 
-            // 2. Tạo role ADMIN nếu chưa có
+
             Role adminRole = roleRepository.findByName(PredefinedRole.ADMIN_ROLE)
                     .orElseGet(() -> roleRepository.save(Role.builder()
                             .name(PredefinedRole.ADMIN_ROLE)
                             .description("Admin role")
                             .build()));
 
-            // 3. Tạo admin user mặc định nếu chưa có
+
             if (userRepository.findByUsername(ADMIN_USER_NAME).isEmpty()) {
                 User user = User.builder()
                         .username(ADMIN_USER_NAME)

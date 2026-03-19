@@ -19,6 +19,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+
+import java.util.List;
 import java.util.Map;
 
 @Slf4j
@@ -86,7 +88,7 @@ public class ProductController {
 
     // Statistics
     @GetMapping("/statistics")
-    @Operation(summary = "Product statistics", description = "Product statistics (quantity, stock, status, etc.)")
+    @Operation(summary = "Product statistics", description = "Product statistics")
     public ApiResponse<Map<String, Object>> getStats() {
         return ApiResponse.<Map<String, Object>>builder()
                 .result(productService.getProductStatistics())
@@ -104,5 +106,10 @@ public class ProductController {
         return ApiResponse.<ProductResponse>builder()
                 .result(response)
                 .build();
+    }
+
+    @GetMapping("/by-supplier/{supplierId}")
+    public ApiResponse<List<ProductResponse>> getBySupplier(@PathVariable String supplierId) {
+        return ApiResponse.success(productService.getProductsBySupplier(supplierId));
     }
 }

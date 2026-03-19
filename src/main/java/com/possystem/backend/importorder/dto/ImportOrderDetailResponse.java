@@ -11,8 +11,15 @@ import java.math.BigDecimal;
 @AllArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE)
 public class ImportOrderDetailResponse {
+    String id;
+
     String productId;
     String productName;
-    Integer quantity;
+
+    int quantity;
+    int receivedQuantity;
+    int confirmedQuantity;
+
     BigDecimal importPrice;
+    BigDecimal lineTotal;
 }
