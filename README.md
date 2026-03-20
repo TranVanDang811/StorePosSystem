@@ -111,6 +111,10 @@ Token auto-refresh using Axios Interceptor
 
 Clean DTO mapping with MapStruct
 
+# 🚀 Live Demo
 
+🌐 Frontend: [https://github.com/TranVanDang811/Interface-Frontend-Pos.git](https://github.com/TranVanDang811/Interface-Frontend-Pos.git)
+
+🔗 Backend API: [https://github.com/TranVanDang811/StorePosSystem.git](https://github.com/TranVanDang811/StorePosSystem.git)
 
 
