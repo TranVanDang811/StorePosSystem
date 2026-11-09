@@ -4,6 +4,7 @@ import com.possystem.backend.common.enums.OrderStatus;
 import com.possystem.backend.common.response.ApiResponse;
 import com.possystem.backend.order.dto.OrderRequest;
 import com.possystem.backend.order.dto.OrderResponse;
+import com.possystem.backend.order.dto.OrderSummaryResponse;
 import com.possystem.backend.order.dto.RevenueStatsResponse;
 import com.possystem.backend.order.service.OrderService;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -11,6 +12,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
+import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -31,7 +33,7 @@ public class OrderController {
     //Create order
     @Operation(summary = "Create a new order", description = "Create a new customer order with products and quantities.")
     @PostMapping
-    ApiResponse<OrderResponse> createOrder(@RequestBody OrderRequest request) {
+    ApiResponse<OrderResponse> createOrder(@RequestBody @Valid OrderRequest request) {
         return ApiResponse.<OrderResponse>builder()
                 .result(orderService.createOrder(request))
                 .build();
@@ -42,9 +44,25 @@ public class OrderController {
     @GetMapping
     ApiResponse<Page<OrderResponse>> getAllOrders(
             @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "5") int size) {
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) String fromDate,
+            @RequestParam(required = false) String toDate,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String keyword) {
         return ApiResponse.<Page<OrderResponse>>builder()
-                .result(orderService.getAllOrders(page - 1, size))
+                .result(orderService.getOrders(page - 1, size, fromDate, toDate, status, keyword))
+                .build();
+    }
+
+    @Operation(summary = "Get order summary stats", description = "Retrieve aggregate statistics for orders matching filters.")
+    @GetMapping("/summary")
+    public ApiResponse<OrderSummaryResponse> getOrderSummary(
+            @RequestParam(required = false) String fromDate,
+            @RequestParam(required = false) String toDate,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String keyword) {
+        return ApiResponse.<OrderSummaryResponse>builder()
+                .result(orderService.getOrderSummary(fromDate, toDate, status, keyword))
                 .build();
     }
 
@@ -95,7 +113,7 @@ public class OrderController {
     @PutMapping("/{id}/update")
     public ApiResponse<OrderResponse> updateOrder(
             @PathVariable String id,
-            @RequestBody OrderRequest request
+            @RequestBody @Valid OrderRequest request
     ) {
 
         OrderResponse response = orderService.updateOrder(id, request);
@@ -108,12 +126,12 @@ public class OrderController {
     @GetMapping("/status/{status}")
     public ApiResponse<Page<OrderResponse>> getOrdersByStatus(
             @PathVariable OrderStatus status,
-            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "5") int size
     ) {
 
         return ApiResponse.<Page<OrderResponse>>builder()
-                .result(orderService.getOrdersByStatus(status, page - 1, size))
+                .result(orderService.getOrdersByStatus(status, Math.max(0, page - 1), size))
                 .build();
     }
 }

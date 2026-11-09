@@ -60,6 +60,7 @@ public class ShiftServiceImpl implements ShiftService {
         Shift shift = Shift.builder()
                 .shiftCode(generateShiftCode())
                 .startTime(LocalDateTime.now())
+                .note(request.getNote())
                 .openingCash(request.getOpeningCash())
                 .status(ShiftStatus.OPEN)
                 .openedBy(currentUser)
@@ -155,9 +156,9 @@ public class ShiftServiceImpl implements ShiftService {
         // =========================
         // 12. SET DATA QUAN TRỌNG
         // =========================
-        shift.setOpeningCash(shift.getOpeningCash()); // giữ nguyên
-        shift.setCashSales(cashSales);               // 👈 thêm mới
-        shift.setCashRefunds(cashRefunds);           // 👈 thêm mới
+        shift.setOpeningCash(shift.getOpeningCash());
+        shift.setCashSales(cashSales);
+        shift.setCashRefunds(cashRefunds);
 
         shift.setExpectedCash(expectedCash);
         shift.setCountedCash(countedCash);
@@ -231,7 +232,7 @@ public class ShiftServiceImpl implements ShiftService {
                 .countedCash(shift.getCountedCash())
                 .difference(shift.getDifference())
                 .depositedCash(shift.getDepositedCash())
-                // 👇 NHÂN VIÊN KẾT CA
+           
                 .closedById(
                         shift.getClosedBy() != null ? shift.getClosedBy().getId() : null
                 )
@@ -273,12 +274,6 @@ public class ShiftServiceImpl implements ShiftService {
                 now.getSecond()
         );
     }
-
-    private void addRow(PdfPTable table, String label, Integer value, Font font) {
-        table.addCell(createCell(label, font, Element.ALIGN_LEFT));
-        table.addCell(createCell(String.valueOf(value), font, Element.ALIGN_RIGHT));
-    }
-
     private PdfPCell createCell(String text, Font font, int align) {
         PdfPCell cell = new PdfPCell(new Phrase(text, font));
         cell.setHorizontalAlignment(align);
@@ -289,192 +284,163 @@ public class ShiftServiceImpl implements ShiftService {
         return dateTime.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss"));
     }
 
-    private String formatCurrency(BigDecimal amount) {
-        if (amount == null) return "0 đ";
-
-        NumberFormat formatter = NumberFormat.getCurrencyInstance(new Locale("vi", "VN"));
-        return formatter.format(amount);
-    }
     //-----------------
     @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
     @Transactional(readOnly = true)
-    public ResponseEntity<ByteArrayResource> exportShiftReport(String shiftCode) {
+    public ResponseEntity<String> exportShiftReportHtml(String shiftCode) {
 
         Shift shift = shiftRepository.findByShiftCode(shiftCode)
                 .orElseThrow(() -> new AppException(ErrorCode.SHIFT_NOT_FOUND));
 
         ShiftClosingReportResponse report = shiftMapper.toClosingReportResponse(shift);
 
-        byte[] pdfBytes = generateShiftReportPdf(report);
-
-        ByteArrayResource resource = new ByteArrayResource(pdfBytes);
+        String html = generateShiftHtml(report);
 
         return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=shift-" + shiftCode + ".pdf")
-                .contentType(MediaType.APPLICATION_PDF)
-                .body(resource);
+                .contentType(MediaType.TEXT_HTML)
+                .body(html);
     }
-    private byte[] generateShiftReportPdf(ShiftClosingReportResponse report) {
-        try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+    private String generateShiftHtml(ShiftClosingReportResponse r) {
 
-            Document document = new Document(PageSize.A4, 40, 40, 40, 40);
-            PdfWriter.getInstance(document, out);
-            document.open();
+        String denominations = """
+<div class="section">
+    <div class="center bold">DENOMINATIONS</div>
+    
+    %s
+    %s
+    %s
+    %s
+    %s
+    %s
+    %s
+    %s
+    %s
+</div>
+""".formatted(
+                denomRow("500,000", r.getNote500k()),
+                denomRow("200,000", r.getNote200k()),
+                denomRow("100,000", r.getNote100k()),
+                denomRow("50,000", r.getNote50k()),
+                denomRow("20,000", r.getNote20k()),
+                denomRow("10,000", r.getNote10k()),
+                denomRow("5,000", r.getNote5k()),
+                denomRow("2,000", r.getNote2k()),
+                denomRow("1,000", r.getNote1k())
+        );
 
-            // ===== FONT =====
-            Font titleFont = new Font(Font.HELVETICA, 18, Font.BOLD);
-            Font headerFont = new Font(Font.HELVETICA, 13, Font.BOLD);
-            Font normalFont = new Font(Font.HELVETICA, 11, Font.NORMAL);
-            Font boldFont = new Font(Font.HELVETICA, 11, Font.BOLD);
+        return """
+<html>
+<head>
+<style>
+body {
+    font-family: monospace;
+    width: 80mm;
+    padding: 10px;
+    font-size: 13px;
+}
 
-            // ===== HEADER =====
-            Paragraph store = new Paragraph("POS SYSTEM STORE", headerFont);
-            store.setAlignment(Element.ALIGN_CENTER);
+.center { text-align: center; }
 
-            Paragraph title = new Paragraph("SHIFT CLOSING REPORT", titleFont);
-            title.setAlignment(Element.ALIGN_CENTER);
-            title.setSpacingAfter(10);
+.line {
+    display: flex;
+    justify-content: space-between;
+}
 
-            document.add(store);
-            document.add(title);
+.bold { font-weight: bold; }
 
-            addSeparatorLine(document);
+.small { font-size: 12px; }
 
-            // ===== INFO =====
-            PdfPTable info = new PdfPTable(2);
-            info.setWidthPercentage(100);
-            info.setWidths(new float[]{40, 60});
+hr {
+    border-top: 1px dashed black;
+    margin: 6px 0;
+}
+</style>
+</head>
 
-            addRowNoBorder(info, "Shift:", report.getShiftCode(), normalFont);
-            addRowNoBorder(info, "Opened:", report.getOpenedByName(), normalFont);
-            addRowNoBorder(info, "Closed:", report.getClosedByName(), normalFont);
-            addRowNoBorder(info, "Start:", formatDateTime(report.getStartTime()), normalFont);
-            addRowNoBorder(info, "End:", formatDateTime(report.getEndTime()), normalFont);
+<body>
 
-            document.add(info);
+<div class="center">
+    <h3>SHIFT REPORT</h3>
+    <div>%s</div>
+</div>
 
-            addSeparatorLine(document);
+<hr/>
 
-            // ===== CASH SUMMARY =====
-            Paragraph cashHeader = new Paragraph("CASH SUMMARY", headerFont);
-            cashHeader.setSpacingBefore(10);
-            cashHeader.setSpacingAfter(5);
-            document.add(cashHeader);
+<div class="line"><span>Start</span><span>%s</span></div>
+<div class="line"><span>End</span><span>%s</span></div>
+<div class="line"><span>Opened</span><span>%s</span></div>
+<div class="line"><span>Closed</span><span>%s</span></div>
 
-            PdfPTable cash = new PdfPTable(2);
-            cash.setWidthPercentage(100);
-            cash.setWidths(new float[]{70, 30});
 
-            addRowNoBorder(cash, "Opening Cash", formatCurrency(report.getOpeningCash()), normalFont);
-            addRowNoBorder(cash, "Cash Sales", formatCurrency(report.getCashSales()), normalFont);
-            addRowNoBorder(cash, "Refunds", formatCurrency(report.getCashRefunds()), normalFont);
+<hr/>
 
-            document.add(cash);
-            addSeparatorLine(document);
+%s
 
-            PdfPTable cashTotal = new PdfPTable(2);
-            cashTotal.setWidthPercentage(100);
-            cashTotal.setWidths(new float[]{70, 30});
+<hr/>
 
-            addRowNoBorder(cashTotal, "Expected Cash", formatCurrency(report.getExpectedCash()), boldFont);
-            addRowNoBorder(cashTotal, "Counted Cash", formatCurrency(report.getCountedCash()), boldFont);
-            addRowNoBorder(cashTotal, "Difference", formatCurrency(report.getDifference()), boldFont);
-            addRowNoBorder(cashTotal, "Deposited", formatCurrency(report.getDepositedCash()), boldFont);
+<div class="line"><span>Opening</span><span>%s</span></div>
+<div class="line"><span>Sales</span><span>%s</span></div>
+<div class="line"><span>Refund</span><span>%s</span></div>
 
-            document.add(cashTotal);
+<hr/>
 
-            addSeparatorLine(document);
+<div class="line bold"><span>Expected</span><span>%s</span></div>
+<div class="line bold"><span>Counted</span><span>%s</span></div>
+<div class="line bold"><span>Diff</span><span>%s</span></div>
 
-            // ===== DENOMINATIONS =====
-            Paragraph denomHeader = new Paragraph("DENOMINATIONS", headerFont);
-            denomHeader.setSpacingBefore(10);
-            denomHeader.setSpacingAfter(5);
-            document.add(denomHeader);
+<hr/>
 
-            PdfPTable denom = new PdfPTable(3);
-            denom.setWidthPercentage(100);
-            denom.setWidths(new float[]{30, 30, 40});
+<div class="line"><span>Orders</span><span>%d</span></div>
+<div class="line"><span>Customers</span><span>%d</span></div>
 
-            addDenomRow(denom, "500,000", report.getNote500k(), normalFont);
-            addDenomRow(denom, "200,000", report.getNote200k(), normalFont);
-            addDenomRow(denom, "100,000", report.getNote100k(), normalFont);
-            addDenomRow(denom, "50,000", report.getNote50k(), normalFont);
-            addDenomRow(denom, "20,000", report.getNote20k(), normalFont);
-            addDenomRow(denom, "10,000", report.getNote10k(), normalFont);
-            addDenomRow(denom, "5,000", report.getNote5k(), normalFont);
-            addDenomRow(denom, "2,000", report.getNote2k(), normalFont);
-            addDenomRow(denom, "1,000", report.getNote1k(), normalFont);
+<hr/>
 
-            document.add(denom);
+<div class="center small">
+    Close shift OK 
+</div>
 
-            addSeparatorLine(document);
+</body>
+</html>
+""".formatted(
+                r.getShiftCode(),
+                formatDateTime(r.getStartTime()),
+                formatDateTime(r.getEndTime()),
+                r.getOpenedByName(),
+                r.getClosedByName(),
+                denominations,
+                formatShort(r.getOpeningCash()),
+                formatShort(r.getCashSales()),
+                formatShort(r.getCashRefunds()),
+                formatShort(r.getExpectedCash()),
+                formatShort(r.getCountedCash()),
+                formatShort(r.getDifference()),
 
-            // ===== STATISTICS =====
-            Paragraph statHeader = new Paragraph("STATISTICS", headerFont);
-            statHeader.setSpacingBefore(10);
-            statHeader.setSpacingAfter(5);
-            document.add(statHeader);
-
-            PdfPTable stat = new PdfPTable(2);
-            stat.setWidthPercentage(100);
-            stat.setWidths(new float[]{70, 30});
-
-            addRowNoBorder(stat, "Orders", String.valueOf(report.getTotalOrdersPaid()), normalFont);
-            addRowNoBorder(stat, "Customers", String.valueOf(report.getTotalCustomers()), normalFont);
-
-            document.add(stat);
-
-            addSeparatorLine(document);
-
-            // ===== SIGN =====
-            Paragraph sign = new Paragraph("Signature: " + report.getClosedByName(), normalFont);
-            sign.setAlignment(Element.ALIGN_RIGHT);
-            sign.setSpacingBefore(20);
-            document.add(sign);
-
-            document.close();
-            return out.toByteArray();
-
-        } catch (Exception e) {
-            log.error("PDF error: {}", e.getMessage());
-            throw new RuntimeException("Export PDF failed", e);
-        }
+                r.getTotalOrdersPaid(),
+                r.getTotalCustomers()
+        );
     }
 
 
     //---
-    private void addRowNoBorder(PdfPTable table, String left, String right, Font font) {
-        PdfPCell leftCell = new PdfPCell(new Phrase(left, font));
-        leftCell.setBorder(Rectangle.NO_BORDER);
-        leftCell.setHorizontalAlignment(Element.ALIGN_LEFT);
-        leftCell.setPadding(4);
-
-        PdfPCell rightCell = new PdfPCell(new Phrase(right, font));
-        rightCell.setBorder(Rectangle.NO_BORDER);
-        rightCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
-        rightCell.setPadding(4);
-
-        table.addCell(leftCell);
-        table.addCell(rightCell);
+    private String formatShort(BigDecimal amount) {
+        if (amount == null) return "0";
+        return String.format("%,.0f", amount);
     }
-    private void addDenomRow(PdfPTable table, String label, Long count, Font font) {
+    private String denomRow(String label, Long count) {
+
         long c = count == null ? 0 : count;
-        long total = c * Long.parseLong(label.replace(",", ""));
+        long value = Long.parseLong(label.replace(",", ""));
+        long total = c * value;
 
-        table.addCell(noBorderCell(label, font, Element.ALIGN_LEFT));
-        table.addCell(noBorderCell("x " + c, font, Element.ALIGN_CENTER));
-        table.addCell(noBorderCell(formatCurrency(BigDecimal.valueOf(total)), font, Element.ALIGN_RIGHT));
-    }
-    private PdfPCell noBorderCell(String text, Font font, int align) {
-        PdfPCell cell = new PdfPCell(new Phrase(text, font));
-        cell.setBorder(Rectangle.NO_BORDER);
-        cell.setHorizontalAlignment(align);
-        cell.setPadding(4);
-        return cell;
-    }
-    private void addSeparatorLine(Document document) throws DocumentException {
-        LineSeparator ls = new LineSeparator();
-        ls.setLineWidth(1f);
-        document.add(new Chunk(ls));
+        return """
+<div class="line small">
+    <span>%s x %d</span>
+    <span>%s</span>
+</div>
+""".formatted(
+                label,
+                c,
+                formatShort(BigDecimal.valueOf(total))
+        );
     }
 }

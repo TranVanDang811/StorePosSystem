@@ -10,6 +10,7 @@ import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import com.possystem.backend.common.response.ApiResponse;
+import jakarta.validation.Valid;
 @RestController
 @RequestMapping("/shifts")
 @RequiredArgsConstructor
@@ -18,14 +19,14 @@ public class ShiftController {
     private final ShiftService shiftService;
 
     @PostMapping("/open")
-    public ApiResponse<ShiftResponse> openShift(@RequestBody OpenShiftRequest request) {
+    public ApiResponse<ShiftResponse> openShift(@RequestBody @Valid OpenShiftRequest request) {
         return ApiResponse.<ShiftResponse>builder()
                 .result(shiftService.openShift(request))
                 .build();
     }
 
     @PostMapping("/close")
-    public ApiResponse<ShiftResponse> closeShift(@RequestBody CloseShiftRequest request) {
+    public ApiResponse<ShiftResponse> closeShift(@RequestBody @Valid CloseShiftRequest request) {
         return ApiResponse.<ShiftResponse>builder()
                 .result(shiftService.closeShift(request))
                 .build();
@@ -44,9 +45,8 @@ public class ShiftController {
     }
 
     @GetMapping("/export/{shiftCode}")
-    public ResponseEntity<ByteArrayResource> exportShiftReport(
-            @PathVariable String shiftCode
-    ) {
-        return shiftService.exportShiftReport(shiftCode);
+    public ResponseEntity<String> exportShiftReportHtml( @PathVariable String shiftCode)
+    {
+        return shiftService.exportShiftReportHtml(shiftCode);
     }
 }

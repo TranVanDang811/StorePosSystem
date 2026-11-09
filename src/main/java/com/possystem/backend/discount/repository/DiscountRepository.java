@@ -16,4 +16,11 @@ public interface DiscountRepository extends JpaRepository<Discount, String> {
 
     @Query("SELECT d FROM Discount d WHERE d.endDate >= :cutoff OR d.active = true")
     List<Discount> findAllActiveOrRecentlyExpired(@Param("cutoff") LocalDateTime cutoff);
+
+    @Query("""
+    SELECT d FROM Discount d
+    WHERE d.startDate <= :now
+      AND d.endDate >= :now
+""")
+    List<Discount> findActiveDiscounts(LocalDateTime now);
 }

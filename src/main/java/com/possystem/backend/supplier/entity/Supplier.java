@@ -26,6 +26,6 @@ public class Supplier extends AbstractEntity {
     String email;
 
     String address;
-    @OneToMany(mappedBy = "supplier", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OneToMany(mappedBy = "supplier")
     Set<Product> products = new HashSet<>();
 }

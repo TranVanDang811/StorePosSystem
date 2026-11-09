@@ -27,7 +27,7 @@ public class ImportOrderDetail {
     @JoinColumn(name = "import_order_id")
     ImportOrder importOrder;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "product_id")
     Product product;
 }

@@ -9,7 +9,6 @@ import org.mapstruct.*;
 
 import java.util.List;
 
-
 @Mapper(componentModel = "spring", builder = @Builder(disableBuilder = true))
 public interface ImportOrderMapper {
 
@@ -23,16 +22,18 @@ public interface ImportOrderMapper {
     @Mapping(target = "confirmStatus", ignore = true)
     ImportOrder toEntity(ImportOrderCreateRequest request);
 
-
     @Mapping(target = "totalReceivedQuantity",
             expression = "java(order.getTotalReceivedQuantity())")
+    @Mapping(target = "overdue",
+            expression = "java(order.isOverdue())")
+    @Mapping(target = "daysSinceOrder",
+            expression = "java(order.getDaysSinceOrder())")
     @Mapping(target = "supplierId", source = "supplier.id")
     @Mapping(target = "supplierName", source = "supplier.name")
     @Mapping(target = "importDetails", source = "importDetails")
     ImportOrderResponse toResponse(ImportOrder order);
 
     List<ImportOrderResponse> toResponseList(List<ImportOrder> orders);
-
 
     // ===== DETAIL MAPPING =====
 

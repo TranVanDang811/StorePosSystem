@@ -22,6 +22,6 @@ public class Category extends AbstractEntity {
 
     String description;
 
-    @OneToMany(mappedBy = "category", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OneToMany(mappedBy = "category")
     Set<Product> products = new HashSet<>();
 }

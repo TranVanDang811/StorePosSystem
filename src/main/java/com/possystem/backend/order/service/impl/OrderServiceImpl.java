@@ -9,6 +9,7 @@ import com.possystem.backend.discount.repository.DiscountRepository;
 import com.possystem.backend.discount.service.DiscountService;
 import com.possystem.backend.order.dto.OrderRequest;
 import com.possystem.backend.order.dto.OrderResponse;
+import com.possystem.backend.order.dto.OrderSummaryResponse;
 import com.possystem.backend.order.dto.RevenueStatsResponse;
 import com.possystem.backend.order.entity.OrderDetail;
 import com.possystem.backend.order.entity.Orders;
@@ -19,7 +20,6 @@ import com.possystem.backend.product.entity.Product;
 import com.possystem.backend.product.repository.ProductRepository;
 import com.possystem.backend.user.repository.CustomerProfileRepository;
 import com.possystem.backend.user.repository.UserRepository;
-import jakarta.transaction.Transactional;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
@@ -38,9 +38,12 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import org.springframework.transaction.annotation.Transactional;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public class OrderServiceImpl implements OrderService {
     final OrderRepository orderRepository;
@@ -118,6 +121,102 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
+    public Page<OrderResponse> getOrders(
+            int page,
+            int size,
+            String fromDate,
+            String toDate,
+            String status,
+            String keyword
+    ) {
+        LocalDateTime from = null;
+        LocalDateTime to = null;
+
+        if (fromDate != null && !fromDate.isBlank()) {
+            from = LocalDate.parse(fromDate).atStartOfDay();
+        }
+
+        if (toDate != null && !toDate.isBlank()) {
+            to = LocalDate.parse(toDate).atTime(23, 59, 59, 999999999);
+        }
+
+        OrderStatus orderStatus = null;
+        if (status != null && !status.isBlank()) {
+            try {
+                orderStatus = OrderStatus.valueOf(status);
+            } catch (Exception ignored) {}
+        }
+
+        Pageable pageable = PageRequest.of(page, size);
+
+        return orderRepository.filterOrders(
+                from,
+                to,
+                orderStatus,
+                keyword,
+                pageable
+        ).map(orderMapper::toResponse);
+    }
+
+    @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
+    public OrderSummaryResponse getOrderSummary(
+            String fromDate,
+            String toDate,
+            String status,
+            String keyword
+    ) {
+        LocalDateTime from = null;
+        LocalDateTime to = null;
+
+        if (fromDate != null && !fromDate.isBlank()) {
+            from = LocalDate.parse(fromDate).atStartOfDay();
+        }
+
+        if (toDate != null && !toDate.isBlank()) {
+            to = LocalDate.parse(toDate).atTime(23, 59, 59, 999999999);
+        }
+
+        OrderStatus orderStatus = null;
+        if (status != null && !status.isBlank()) {
+            try {
+                orderStatus = OrderStatus.valueOf(status);
+            } catch (Exception ignored) {}
+        }
+
+        Object statsObj = orderRepository.getOrderSummaryStats(from, to, orderStatus, keyword);
+
+        Object[] row = null;
+        if (statsObj instanceof Object[]) {
+            row = (Object[]) statsObj;
+        } else if (statsObj instanceof List<?> list && !list.isEmpty()) {
+            Object first = list.get(0);
+            if (first instanceof Object[]) {
+                row = (Object[]) first;
+            }
+        }
+
+        if (row != null && row.length >= 6) {
+            return OrderSummaryResponse.builder()
+                    .totalOrders(row[0] != null ? ((Number) row[0]).longValue() : 0L)
+                    .paidOrders(row[1] != null ? ((Number) row[1]).longValue() : 0L)
+                    .pendingOrders(row[2] != null ? ((Number) row[2]).longValue() : 0L)
+                    .holdOrders(row[3] != null ? ((Number) row[3]).longValue() : 0L)
+                    .canceledOrders(row[4] != null ? ((Number) row[4]).longValue() : 0L)
+                    .totalRevenue(toBigDecimal(row[5]))
+                    .build();
+        }
+
+        return OrderSummaryResponse.builder()
+                .totalOrders(0L)
+                .paidOrders(0L)
+                .pendingOrders(0L)
+                .holdOrders(0L)
+                .canceledOrders(0L)
+                .totalRevenue(BigDecimal.ZERO)
+                .build();
+    }
+
+    @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
     public OrderResponse getOrderById(String orderId) {
         Orders order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_EXISTED));
@@ -182,13 +281,14 @@ public class OrderServiceImpl implements OrderService {
     }
 
 
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE') or hasRole('EMPLOYEE')")
     @Transactional
     public OrderResponse updateOrder(String orderId, OrderRequest request) {
 
         Orders order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_EXISTED));
 
-        if(order.getStatus() == OrderStatus.PAID){
+        if (order.getStatus() == OrderStatus.PAID) {
             throw new AppException(ErrorCode.ORDER_ALREADY_PAID);
         }
 
@@ -200,14 +300,33 @@ public class OrderServiceImpl implements OrderService {
                     Product product = productRepository.findById(d.getProductId())
                             .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
+                    BigDecimal itemTotal = product.getPrice()
+                            .multiply(BigDecimal.valueOf(d.getQuantity()));
+
                     return OrderDetail.builder()
                             .order(order)
                             .product(product)
                             .quantity(d.getQuantity())
+                            .totalPrice(itemTotal)
+                            .price(product.getPrice())
                             .build();
                 }).collect(Collectors.toSet());
 
         order.setOrderDetails(details);
+
+        BigDecimal totalPrice = details.stream()
+                .map(OrderDetail::getTotalPrice)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        order.setTotalPrice(totalPrice);
+
+        if (request.getDiscountCode() != null && !request.getDiscountCode().isBlank()) {
+            discountService.applyDiscountCode(order, request.getDiscountCode());
+        }
+
+        BigDecimal discountAmount = order.getDiscountAmount() != null ? order.getDiscountAmount() : BigDecimal.ZERO;
+        BigDecimal finalAmount = order.getTotalPrice().subtract(discountAmount);
+        order.setFinalAmount(finalAmount.max(BigDecimal.ZERO));
 
         return orderMapper.toResponse(orderRepository.save(order));
     }
@@ -223,25 +342,26 @@ public class OrderServiceImpl implements OrderService {
     }
 
     private String generateOrderCode() {
+        String date = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
+        String time = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HHmmss"));
+        int randomSuffix = java.util.concurrent.ThreadLocalRandom.current().nextInt(100, 999);
+        return "ORD-" + date + "-" + time + "-" + randomSuffix;
+    }
 
-        String date = LocalDate.now()
-                .format(DateTimeFormatter.ofPattern("yyyyMMdd"));
-
-        String prefix = "ORD-" + date + "-";
-
-        List<Orders> lastOrders =
-                orderRepository.findLastOrderCodeOfDay(prefix, PageRequest.of(0,1));
-
-        if(lastOrders.isEmpty()){
-            return prefix + "0001";
+    private BigDecimal toBigDecimal(Object value) {
+        if (value == null) {
+            return BigDecimal.ZERO;
         }
-
-        String lastCode = lastOrders.get(0).getOrderCode();
-
-        String numberPart = lastCode.substring(lastCode.lastIndexOf("-") + 1);
-
-        int nextNumber = Integer.parseInt(numberPart) + 1;
-
-        return prefix + String.format("%04d", nextNumber);
+        if (value instanceof BigDecimal) {
+            return (BigDecimal) value;
+        }
+        if (value instanceof Number) {
+            return BigDecimal.valueOf(((Number) value).doubleValue());
+        }
+        try {
+            return new BigDecimal(value.toString().trim());
+        } catch (Exception e) {
+            return BigDecimal.ZERO;
+        }
     }
 }

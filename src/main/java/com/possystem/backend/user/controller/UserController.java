@@ -18,6 +18,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @Slf4j
 @RestController
 @RequestMapping("/users")
@@ -25,122 +27,126 @@ import org.springframework.web.bind.annotation.*;
 @Tag(name = "User API", description = "User management")
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public class UserController {
-    UserService userService;
+        UserService userService;
 
-    // Create new user
-    @PostMapping
-    @Operation(summary = "Create new user", description = "API to create users in the system")
-    ApiResponse<UserResponse> createUser(@RequestBody @Valid UserCreationRequest request) {
-        return ApiResponse.<UserResponse>builder()
-                .result(userService.createUser(request))
-                .build();
-    }
-    // Get a list of users with pagination
-    @GetMapping
-    @Operation(summary = "Get list users", description = "Get users with pagination and optional role filter")
-    ApiResponse<Page<UserResponse>> getUsers(
-            @RequestParam(required = false) String role,
-            @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "5") int size) {
+        // Create new user
+        @PostMapping
+        @Operation(summary = "Create new user", description = "API to create users in the system")
+        ApiResponse<UserResponse> createUser(@RequestBody @Valid UserCreationRequest request) {
+                return ApiResponse.<UserResponse>builder()
+                                .result(userService.createUser(request))
+                                .build();
+        }
 
-        return ApiResponse.<Page<UserResponse>>builder()
-                .result(userService.getUsers(role, page -1, size))
-                .build();
-    }
-    // Get information of logged-in user
-    @GetMapping("/myInfo")
-    @Operation(summary = "Get logged-in user info", description = "Get current user information (from token)")
-    ApiResponse<UserResponse> getMyInfo() {
-        return ApiResponse.<UserResponse>builder()
-                .result(userService.getMyInfo())
-                .build();
-    }
+        // Get a list of users with pagination
+        @GetMapping
+        @Operation(summary = "Get list users", description = "Get users with pagination and optional role filter")
+        ApiResponse<Page<UserResponse>> getUsers(
+                        @RequestParam(required = false) List<String> roles,
+                        @RequestParam(defaultValue = "1") int page,
+                        @RequestParam(defaultValue = "5") int size) {
 
-    // Search user by keyword (with pagination)
-    @GetMapping("/search")
-    @Operation(summary = "Search users", description = "Search user by keyword, role, status (with pagination)")
-    public ApiResponse<Page<UserResponse>> searchUsers(
-            @RequestParam(required = false) String keyword,
-            @RequestParam(required = false) String roleName,
-            @RequestParam(required = false) UserStatus status,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "10") int size
-    ) {
-        return ApiResponse.<Page<UserResponse>>builder()
-                .result(userService.searchUsers(keyword, roleName, status,page - 1, size))
-                .build();
-    }
+                int pageIndex = Math.max(0, page - 1);
+                return ApiResponse.<Page<UserResponse>>builder()
+                                .result(userService.getUsers(roles, pageIndex, size))
+                                .build();
+        }
 
-    // Delete user by id
-    @DeleteMapping("/{userId}")
-    @Operation(summary = "Delete user", description = "Delete user by ID")
-    ApiResponse<Void>deleteUser(@PathVariable String userId) {
-        userService.deleteUser(userId);
-        return ApiResponse.<Void>builder().message("Delete successfully").build();
-    }
+        // Get information of logged-in user
+        @GetMapping("/myInfo")
+        @Operation(summary = "Get logged-in user info", description = "Get current user information (from token)")
+        ApiResponse<UserResponse> getMyInfo() {
+                return ApiResponse.<UserResponse>builder()
+                                .result(userService.getMyInfo())
+                                .build();
+        }
 
-    // Update user status (ACTIVE, INACTIVE, NONE, etc.)
-    @PatchMapping("/{userId}")
-    @Operation(summary = "Change user status", description = "Update user status (ACTIVE, INACTIVE, NONE, ...)")
-    public ApiResponse<UserResponse> changerStatus(
-            @PathVariable String userId,
-            @RequestParam UserStatus status) {
+        // Search user by keyword (with pagination)
+        @GetMapping("/search")
+        @Operation(summary = "Search users", description = "Search user by keyword, role, status (with pagination)")
+        public ApiResponse<Page<UserResponse>> searchUsers(
+                        @RequestParam(required = false) String keyword,
+                        @RequestParam(required = false) String roleName,
+                        @RequestParam(required = false) List<String> roles,
+                        @RequestParam(required = false) UserStatus status,
+                        @RequestParam(defaultValue = "1") int page,
+                        @RequestParam(defaultValue = "10") int size) {
+                int pageIndex = Math.max(0, page - 1);
+                return ApiResponse.<Page<UserResponse>>builder()
+                                .result(userService.searchUsers(keyword, roleName, roles, status, pageIndex, size))
+                                .build();
+        }
 
-        log.info("Request changer user status, userId = {}", userId);
+        // Delete user by id
+        @DeleteMapping("/{userId}")
+        @Operation(summary = "Delete user", description = "Delete user by ID")
+        ApiResponse<Void> deleteUser(@PathVariable String userId) {
+                userService.deleteUser(userId);
+                return ApiResponse.<Void>builder().message("Delete successfully").build();
+        }
 
-        UserResponse response = userService.changerStatus(userId, status);
+        // Update user status (ACTIVE, INACTIVE, NONE, etc.)
+        @PatchMapping("/{userId}")
+        @Operation(summary = "Change user status", description = "Update user status (ACTIVE, INACTIVE, NONE, ...)")
+        public ApiResponse<UserResponse> changerStatus(
+                        @PathVariable String userId,
+                        @RequestParam UserStatus status) {
 
-        return ApiResponse.<UserResponse>builder()
-                .result(response)
-                .build();
-    }
+                log.info("Request changer user status, userId = {}", userId);
 
-    // Update user roles
-    @PatchMapping("/{userId}/role")
-    @Operation(summary = "Update user role", description = "Update roles for users")
-    public ApiResponse<UserResponse> updateRole(
-            @PathVariable String userId,
-            @RequestParam String roleName) {
-        return ApiResponse.<UserResponse>builder()
-                .result(userService.updateRole(userId, roleName))
-                .build();
-    }
+                UserResponse response = userService.changerStatus(userId, status);
 
-    // Change user password by id
-    @PatchMapping("/{userId}/change-password")
-    @Operation(summary = "Change password", description = "Change password for user using userId")
-    public ApiResponse<Void> changePassword(
-            @PathVariable String userId,
-            @RequestBody ChangePasswordRequest request) {
-        userService.changePassword(userId, request.getOldPassword(), request.getNewPassword());
-        return ApiResponse.<Void>builder()
-                .message("Password updated successfully")
-                .build();
-    }
+                return ApiResponse.<UserResponse>builder()
+                                .result(response)
+                                .build();
+        }
 
-    // Update user information by id
-    @PutMapping("/{userId}")
-    @Operation(summary = "Supplier Update", description = "Update supplier information by ID")
-    ApiResponse<UserResponse> updateUser(@PathVariable String userId, @RequestBody UserUpdateRequest request) {
-        return ApiResponse.<UserResponse>builder()
-                .result(userService.updateUser(userId, request))
-                .build();
-    }
+        // Update user roles
+        @PatchMapping("/{userId}/role")
+        @Operation(summary = "Update user role", description = "Update roles for users")
+        public ApiResponse<UserResponse> updateRole(
+                        @PathVariable String userId,
+                        @RequestParam String roleName) {
+                return ApiResponse.<UserResponse>builder()
+                                .result(userService.updateRole(userId, roleName))
+                                .build();
+        }
 
-    // Get user by id
-    @GetMapping("/{userId}")
-    @Operation(summary = "Get user by ID", description = "Get user information by ID")
-    public ApiResponse<UserResponse> getUserById(@PathVariable String userId) {
-        return ApiResponse.<UserResponse>builder()
-                .result(userService.getUserById(userId))
-                .build();
-    }
+        // Change user password by id
+        @PatchMapping("/{userId}/change-password")
+        @Operation(summary = "Change password", description = "Change password for user using userId")
+        public ApiResponse<Void> changePassword(
+                        @PathVariable String userId,
+                        @RequestBody @Valid ChangePasswordRequest request) {
+                userService.changePassword(userId, request.getOldPassword(), request.getNewPassword());
+                return ApiResponse.<Void>builder()
+                                .message("Password updated successfully")
+                                .build();
+        }
 
-    @GetMapping("/phone/{phone}")
-    public ApiResponse<UserResponse> getCustomerByPhone(@PathVariable String phone) {
-        return ApiResponse.<UserResponse>builder()
-                .result(userService.getCustomerByPhone(phone))
-                .build();
-    }
+        // Update user information by id
+        @PutMapping("/{userId}")
+        @Operation(summary = "Supplier Update", description = "Update supplier information by ID")
+        ApiResponse<UserResponse> updateUser(@PathVariable String userId, @RequestBody @Valid UserUpdateRequest request) {
+                return ApiResponse.<UserResponse>builder()
+                                .result(userService.updateUser(userId, request))
+                                .build();
+        }
+
+        // Get user by id
+        @GetMapping("/{userId}")
+        @Operation(summary = "Get user by ID", description = "Get user information by ID")
+        public ApiResponse<UserResponse> getUserById(@PathVariable String userId) {
+                return ApiResponse.<UserResponse>builder()
+                                .result(userService.getUserById(userId))
+                                .build();
+        }
+
+        @GetMapping("/phone/{phone}")
+        public ApiResponse<UserResponse> getCustomerByPhone(@PathVariable String phone) {
+                return ApiResponse.<UserResponse>builder()
+                                .result(userService.getCustomerByPhone(phone))
+                                .build();
+        }
 
 }

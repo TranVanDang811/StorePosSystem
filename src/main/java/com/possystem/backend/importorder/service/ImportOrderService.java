@@ -6,12 +6,12 @@ import org.springframework.data.domain.Page;
 import java.io.ByteArrayInputStream;
 import java.time.LocalDate;
 
-
 public interface ImportOrderService {
     ImportOrderResponse createImportOrder(ImportOrderCreateRequest request);
     ImportOrderResponse updateImportOrder(String orderId, ImportOrderUpdateRequest request);
     ImportOrderStatisticResponse getStatistics(LocalDate from, LocalDate to);
     ImportOrderResponse confirmAndFinalize(String orderId);
+    ImportOrderResponse cancelImportOrder(String orderId);
     Page<ImportOrderResponse> getImportOrders(
             String status,
             String sortByImportDate,

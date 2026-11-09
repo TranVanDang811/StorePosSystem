@@ -1,6 +1,7 @@
 package com.possystem.backend.discount.controller;
 
 import com.possystem.backend.common.response.ApiResponse;
+import jakarta.validation.Valid;
 import com.possystem.backend.discount.dto.DiscountRequest;
 import com.possystem.backend.discount.dto.DiscountResponse;
 import com.possystem.backend.discount.service.DiscountService;
@@ -26,7 +27,7 @@ public class DiscountController {
     @Operation(summary = "Create a new discount",
             description = "Create a new discount or coupon code with percentage, validity, and code.")
     @PostMapping
-    public ApiResponse<DiscountResponse> createDiscount(@RequestBody DiscountRequest request) {
+    public ApiResponse<DiscountResponse> createDiscount(@RequestBody @Valid DiscountRequest request) {
         return ApiResponse.<DiscountResponse>builder()
                 .result(discountService.createDiscount(request))
                 .build();
@@ -37,7 +38,7 @@ public class DiscountController {
             description = "Update discount details such as percentage, expiration date, or status by discount ID.")
     @PutMapping("/{id}")
     public ApiResponse<DiscountResponse> updateDiscount(@PathVariable String id,
-                                                        @RequestBody DiscountRequest request) {
+                                                        @RequestBody @Valid DiscountRequest request) {
         return ApiResponse.<DiscountResponse>builder()
                 .result(discountService.updateDiscount(id, request))
                 .build();

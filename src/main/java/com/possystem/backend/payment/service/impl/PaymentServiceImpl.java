@@ -22,15 +22,13 @@ import com.possystem.backend.order.dto.OrderDetailResponse;
 import com.possystem.backend.order.entity.OrderDetail;
 import com.possystem.backend.order.entity.Orders;
 import com.possystem.backend.order.repository.OrderRepository;
-import com.possystem.backend.payment.dto.PaymentRequest;
-import com.possystem.backend.payment.dto.PaymentResponse;
-import com.possystem.backend.payment.dto.RefundRecord;
-import com.possystem.backend.payment.dto.RefundRequest;
+import com.possystem.backend.payment.dto.*;
 import com.possystem.backend.payment.entity.Payment;
 import com.possystem.backend.payment.repository.PaymentRepository;
 import com.possystem.backend.payment.service.PaymentService;
 import com.possystem.backend.product.entity.Product;
 import com.possystem.backend.product.repository.ProductRepository;
+import com.possystem.backend.user.dto.CustomerHistoryResponse;
 import com.possystem.backend.user.entity.CustomerProfile;
 import com.possystem.backend.user.entity.User;
 import com.possystem.backend.user.repository.CustomerProfileRepository;
@@ -56,6 +54,7 @@ import java.awt.*;
 import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -107,7 +106,6 @@ public class PaymentServiceImpl implements PaymentService {
             throw new AppException(ErrorCode.INVALID_ORDER_AMOUNT);
         }
 
-
         // =========================
 
         int actualUsedPoints = 0;
@@ -118,13 +116,11 @@ public class PaymentServiceImpl implements PaymentService {
             PointDiscountResult result = discountService.applyPointDiscount(
                     profile,
                     request.getUsedPoints(),
-                    orderFinalAmount
-            );
+                    orderFinalAmount);
 
             pointDiscount = result.getDiscountAmount();
             actualUsedPoints = result.getUsedPoints();
         }
-
 
         // =========================
 
@@ -153,7 +149,6 @@ public class PaymentServiceImpl implements PaymentService {
         if (request.getMethod() == PaymentMethod.CASH) {
             changeAmount = request.getCashReceived().subtract(paymentAmount);
         }
-
 
         // =========================
 
@@ -194,7 +189,6 @@ public class PaymentServiceImpl implements PaymentService {
 
         paymentRepository.save(payment);
 
-
         // =========================
         for (OrderDetail detail : order.getOrderDetails()) {
 
@@ -218,7 +212,6 @@ public class PaymentServiceImpl implements PaymentService {
         order.setStatus(OrderStatus.PAID);
         orderRepository.save(order);
 
-
         // =========================
 
         PaymentResponse response = paymentMapper.toPaymentResponse(payment);
@@ -226,7 +219,6 @@ public class PaymentServiceImpl implements PaymentService {
         response.setEarnedPoints(earnedPoints);
         response.setRemainingPoints(remainingPoints);
         response.setUsedPoints(actualUsedPoints);
-
 
         return response;
     }
@@ -239,6 +231,7 @@ public class PaymentServiceImpl implements PaymentService {
         }
         return paymentMapper.toPaymentResponse(payment);
     }
+
     @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
     public PaymentResponse getPaymentById(String paymentId) {
         Payment payment = paymentRepository.findById(paymentId)
@@ -246,80 +239,202 @@ public class PaymentServiceImpl implements PaymentService {
 
         return paymentMapper.toPaymentResponse(payment);
     }
+
     @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
-    public Page<PaymentResponse> getAllPayments(int page, int size) {
+    public Page<PaymentResponse> getPayments(
+            int page,
+            int size,
+            String fromDate,
+            String toDate,
+            String status,
+            String method,
+            String keyword) {
+
+        LocalDateTime from = null;
+        LocalDateTime to = null;
+
+        if (fromDate != null && !fromDate.isBlank()) {
+            from = LocalDate.parse(fromDate).atStartOfDay();
+        }
+
+        if (toDate != null && !toDate.isBlank()) {
+            to = LocalDate.parse(toDate).atTime(23, 59, 59, 999999999);
+        }
+
+        PaymentStatus paymentStatus = null;
+        if (status != null && !status.isBlank()) {
+            paymentStatus = PaymentStatus.valueOf(status);
+        }
+
+        PaymentMethod paymentMethod = null;
+        if (method != null && !method.isBlank()) {
+            paymentMethod = PaymentMethod.valueOf(method);
+        }
+
         Pageable pageable = PageRequest.of(page, size);
-        return paymentRepository.findAll(pageable)
-                .map(paymentMapper::toPaymentResponse);
+
+        return paymentRepository.filterPayments(
+                from,
+                to,
+                paymentStatus,
+                paymentMethod,
+                keyword,
+                pageable).map(paymentMapper::toPaymentResponse);
     }
 
-
-    //--------
     @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
-    @Transactional
-    public PaymentResponse refundPayment(String paymentId, RefundRequest request) {
-        Payment payment = paymentRepository.findById(paymentId)
-                .orElseThrow(() -> new AppException(ErrorCode.PAYMENT_NOT_FOUND));
+    public PaymentSummaryResponse getPaymentSummary(
+            String fromDate,
+            String toDate,
+            String status,
+            String method,
+            String keyword) {
+        LocalDateTime from = null;
+        LocalDateTime to = null;
 
-        if (payment.getMethod() != PaymentMethod.CASH) {
-            throw new AppException(ErrorCode.PAYMENT_NOT_REFUNDABLE);
+        if (fromDate != null && !fromDate.isBlank()) {
+            from = LocalDate.parse(fromDate).atStartOfDay();
         }
 
-
-        if (payment.getStatus() != PaymentStatus.SUCCESS && payment.getStatus() != PaymentStatus.REFUNDED) {
-            throw new AppException(ErrorCode.PAYMENT_NOT_REFUNDABLE);
+        if (toDate != null && !toDate.isBlank()) {
+            to = LocalDate.parse(toDate).atTime(23, 59, 59, 999999999);
         }
 
-        BigDecimal newTotalRefunded = payment.getTotalRefunded() == null
-                ? request.getRefundAmount()
-                : payment.getTotalRefunded().add(request.getRefundAmount());
-
-        if (newTotalRefunded.compareTo(payment.getAmount()) > 0) {
-            throw new AppException(ErrorCode.INVALID_REFUND_AMOUNT);
+        PaymentStatus paymentStatus = null;
+        if (status != null && !status.isBlank()) {
+            paymentStatus = PaymentStatus.valueOf(status);
         }
 
+        PaymentMethod paymentMethod = null;
+        if (method != null && !method.isBlank()) {
+            paymentMethod = PaymentMethod.valueOf(method);
+        }
 
-        List<RefundRecord> refundRecords = new ArrayList<>();
-        if (payment.getRefundHistoryJson() != null) {
-            try {
-                refundRecords = Arrays.asList(objectMapper.readValue(payment.getRefundHistoryJson(), RefundRecord[].class));
-                refundRecords = new ArrayList<>(refundRecords);
-            } catch (Exception e) {
-                refundRecords = new ArrayList<>();
+        Object statsObj = paymentRepository.getPaymentSummaryStats(
+                from,
+                to,
+                paymentStatus,
+                paymentMethod,
+                keyword);
+
+        Object[] row = null;
+        if (statsObj instanceof Object[]) {
+            row = (Object[]) statsObj;
+        } else if (statsObj instanceof List<?> list && !list.isEmpty()) {
+            Object first = list.get(0);
+            if (first instanceof Object[]) {
+                row = (Object[]) first;
             }
         }
 
+        if (row != null && row.length >= 5) {
+            return PaymentSummaryResponse.builder()
+                    .totalTransactions(row[0] != null ? ((Number) row[0]).longValue() : 0L)
+                    .totalRevenue(toBigDecimal(row[1]))
+                    .totalCash(toBigDecimal(row[2]))
+                    .totalDigital(toBigDecimal(row[3]))
+                    .totalRefunded(toBigDecimal(row[4]))
+                    .build();
+        }
 
-        refundRecords.add(RefundRecord.builder()
-                .amount(request.getRefundAmount())
+        return PaymentSummaryResponse.builder()
+                .totalTransactions(0L)
+                .totalRevenue(BigDecimal.ZERO)
+                .totalCash(BigDecimal.ZERO)
+                .totalDigital(BigDecimal.ZERO)
+                .totalRefunded(BigDecimal.ZERO)
+                .build();
+    }
+
+    // --------
+    @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
+    @Transactional
+    public PaymentResponse refundItems(String paymentId, RefundRequest request) {
+
+        Payment payment = paymentRepository.findById(paymentId)
+                .orElseThrow(() -> new AppException(ErrorCode.PAYMENT_NOT_FOUND));
+
+        Orders order = payment.getOrder();
+
+        BigDecimal refundAmount = BigDecimal.ZERO;
+
+        for (RefundItemRequest itemReq : request.getItems()) {
+
+            OrderDetail detail = order.getOrderDetails().stream()
+                    .filter(d -> d.getProduct().getId().equals(itemReq.getProductId()))
+                    .findFirst()
+                    .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
+
+            // validate số lượng refund còn lại
+            int alreadyRefunded = detail.getRefundedQuantity();
+            int remainingRefundable = detail.getQuantity() - alreadyRefunded;
+
+            if (itemReq.getQuantity() <= 0 || itemReq.getQuantity() > remainingRefundable) {
+                throw new AppException(ErrorCode.INVALID_REFUND_AMOUNT,
+                        "Số lượng hoàn (" + itemReq.getQuantity() + ") vượt quá số lượng còn lại có thể hoàn (" + remainingRefundable + ")");
+            }
+
+            // cập nhật số lượng đã hoàn trên chi tiết đơn
+            detail.setRefundedQuantity(alreadyRefunded + itemReq.getQuantity());
+
+            // 💰 tính tiền refund
+            BigDecimal itemRefund = detail.getProduct().getPrice()
+                    .multiply(BigDecimal.valueOf(itemReq.getQuantity()));
+
+            refundAmount = refundAmount.add(itemRefund);
+
+            // 📦 trả lại stock
+            Product product = detail.getProduct();
+            product.setStock(product.getStock() + itemReq.getQuantity());
+
+            if (product.getStatus() == ProductStatus.OUT_OF_STOCK) {
+                product.setStatus(ProductStatus.ACTIVE);
+            }
+
+            productRepository.save(product);
+        }
+
+        orderRepository.save(order);
+
+        // ❌ check không vượt quá tiền thanh toán
+        BigDecimal totalRefunded = payment.getTotalRefunded() == null
+                ? refundAmount
+                : payment.getTotalRefunded().add(refundAmount);
+
+        if (totalRefunded.compareTo(payment.getAmount()) > 0) {
+            throw new AppException(ErrorCode.INVALID_REFUND_AMOUNT);
+        }
+
+        // 🧾 lưu lịch sử
+        List<RefundRecord> history = new ArrayList<>();
+        if (payment.getRefundHistoryJson() != null) {
+            try {
+                history = Arrays.asList(objectMapper.readValue(
+                        payment.getRefundHistoryJson(),
+                        RefundRecord[].class));
+                history = new ArrayList<>(history);
+            } catch (Exception ignored) {
+            }
+        }
+
+        history.add(RefundRecord.builder()
+                .amount(refundAmount)
                 .reason(request.getReason())
                 .date(LocalDateTime.now())
                 .build());
 
-        payment.setTotalRefunded(newTotalRefunded);
-        payment.setRefundHistoryJson(writeAsJson(refundRecords));
+        payment.setTotalRefunded(totalRefunded);
+        payment.setRefundHistoryJson(writeAsJson(history));
 
-        if (newTotalRefunded.compareTo(payment.getAmount()) == 0) {
-            Orders order = payment.getOrder();
-
-            for (OrderDetail detail : order.getOrderDetails()) {
-
-                Product product = detail.getProduct();
-
-                int newStock = product.getStock() + detail.getQuantity();
-
-                product.setStock(newStock);
-
-                // nếu có hàng lại → ACTIVE
-                if (product.getStatus() == ProductStatus.OUT_OF_STOCK && newStock > 0) {
-                    product.setStatus(ProductStatus.ACTIVE);
-                }
-
-                productRepository.save(product);
-            }
+        // ✅ nếu refund full
+        if (totalRefunded.compareTo(payment.getAmount()) == 0) {
             payment.setStatus(PaymentStatus.REFUNDED);
+        } else {
+            payment.setStatus(PaymentStatus.PARTIALLY_REFUNDED);
         }
+
         paymentRepository.save(payment);
+
         return paymentMapper.toPaymentResponse(payment);
     }
 
@@ -330,6 +445,7 @@ public class PaymentServiceImpl implements PaymentService {
             return "[]";
         }
     }
+
     @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
     public List<RefundRecord> getRefundHistory(String paymentId) {
         Payment payment = paymentRepository.findById(paymentId)
@@ -346,181 +462,256 @@ public class PaymentServiceImpl implements PaymentService {
         }
     }
 
-    //----
+    // ----
     @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
     @Transactional
-    public ResponseEntity<ByteArrayResource> exportInvoiceByPayment(String paymentId) {
+    public ResponseEntity<String> exportInvoiceHtml(String paymentId) {
+
         Payment payment = paymentRepository.findById(paymentId)
                 .orElseThrow(() -> new AppException(ErrorCode.PAYMENT_NOT_FOUND));
 
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        String username = auth.getName();
+
         Orders order = payment.getOrder();
-        OrderResponse orderResponse = orderMapper.toResponse(order);
-        PaymentResponse paymentResponse = paymentMapper.toPaymentResponse(payment);
 
-        byte[] pdfBytes = generatePaymentInvoice(paymentResponse, orderResponse);
+        PaymentResponse paymentRes = paymentMapper.toPaymentResponse(payment);
+        OrderResponse orderRes = orderMapper.toResponse(order);
 
-        ByteArrayResource resource = new ByteArrayResource(pdfBytes);
+        String html = generateThermalHtml(paymentRes, orderRes, username);
 
         return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=invoice-" + paymentId + ".pdf")
-                .contentType(MediaType.APPLICATION_PDF)
-                .body(resource);
+                .contentType(MediaType.TEXT_HTML)
+                .body(html);
     }
-    private byte[] generatePaymentInvoice(PaymentResponse payment, OrderResponse order) {
-        try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            Document document = new Document(PageSize.A4, 36, 36, 36, 36);
-            PdfWriter.getInstance(document, out);
-            document.open();
 
-            // Font
-            Font titleFont = new Font(Font.HELVETICA, 20, Font.BOLD);
-            Font sectionFont = new Font(Font.HELVETICA, 14, Font.BOLD);
-            Font infoFont = new Font(Font.HELVETICA, 12, Font.NORMAL);
-            Font boldFont = new Font(Font.HELVETICA, 12, Font.BOLD);
+    private String generateThermalHtml(PaymentResponse payment, OrderResponse order, String username) {
 
-            // Tiêu đề
-            Paragraph title = new Paragraph("HÓA ĐƠN THANH TOÁN ĐẲNG CẤP COFFEE", titleFont);
-            title.setAlignment(Element.ALIGN_CENTER);
-            title.setSpacingAfter(15);
-            document.add(title);
+        StringBuilder items = new StringBuilder();
 
-            // Thông tin chung
-            PdfPTable infoTable = new PdfPTable(1);
-            infoTable.setWidthPercentage(100);
-            infoTable.setSpacingAfter(10);
-            infoTable.getDefaultCell().setBorder(Rectangle.NO_BORDER);
+        for (OrderDetailResponse item : order.getOrderDetails()) {
 
-            infoTable.addCell(new Phrase("Mã thanh toán: " + payment.getId(), infoFont));
-            infoTable.addCell(new Phrase("Ngày thanh toán: " +
-                    payment.getPaymentDate().format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm")), infoFont));
+            BigDecimal subtotal = item.getPrice()
+                    .multiply(BigDecimal.valueOf(item.getQuantity()));
 
-            infoTable.addCell(new Phrase("Khách hàng: " + payment.getFullName(), infoFont));
-            infoTable.addCell(new Phrase("Phương thức: " + payment.getMethod(), infoFont));
+            items.append("""
+                    <div class="item">
+                        <div class="name">%s</div>
+                        <div class="line small">
+                            <span>%dx%s</span>
+                            <span>%s</span>
+                        </div>
+                    </div>
+                    """.formatted(
+                    item.getName(),
+                    item.getQuantity(),
+                    formatShort(item.getPrice()),
+                    formatShort(subtotal)));
+        }
 
-            infoTable.addCell(new Phrase("Trạng thái: " + payment.getStatus(), infoFont));
+        return """
+                <html>
+                <head>
+                    <style>
+                        body {
+                            font-family: monospace;
+                            width: 80mm;
+                            margin: 0;
+                            padding: 10px;
+                            font-size: 13px;
+                        }
 
-            document.add(infoTable);
+                        .center {
+                            text-align: center;
+                        }
 
-            // Bảng sản phẩm
-            Paragraph productHeader = new Paragraph("Chi tiết sản phẩm", sectionFont);
-            productHeader.setSpacingBefore(10);
-            productHeader.setSpacingAfter(8);
-            document.add(productHeader);
+                        .line {
+                            display: flex;
+                            justify-content: space-between;
+                        }
 
-            PdfPTable table = new PdfPTable(4);
-            table.setWidthPercentage(100);
-            table.setWidths(new float[]{4f, 1.2f, 2f, 2f});
+                        .small {
+                            font-size: 12px;
+                        }
 
-            addStyledTableHeader(table, "Sản phẩm", "SL", "Giá", "Thành tiền");
+                        .name {
+                            font-weight: 500;
+                        }
 
-            BigDecimal total = BigDecimal.ZERO;
-            for (OrderDetailResponse detail : order.getOrderDetails()) {
-                BigDecimal subtotal = detail.getPrice().multiply(BigDecimal.valueOf(detail.getQuantity()));
+                        hr {
+                            border-top: 1px dashed black;
+                            margin: 6px 0;
+                        }
 
-                table.addCell(createCell(detail.getName(), infoFont, Element.ALIGN_LEFT));
-                table.addCell(createCell(String.valueOf(detail.getQuantity()), infoFont, Element.ALIGN_CENTER));
-                table.addCell(createCell(formatCurrency(detail.getPrice()), infoFont, Element.ALIGN_RIGHT));
-                table.addCell(createCell(formatCurrency(subtotal), infoFont, Element.ALIGN_RIGHT));
+                        .total {
+                            font-weight: bold;
+                            font-size: 15px;
+                        }
 
-                total = total.add(subtotal);
+                        .section {
+                            margin-top: 5px;
+                        }
+
+                        .footer {
+                            text-align: right;
+                            font-size: 12px;
+                            margin-top: 10px;
+                        }
+                    </style>
+                </head>
+
+                <body>
+
+                    <!-- HEADER -->
+                    <div class="center">
+                        <h3>DANG CAP STORE</h3>
+                        <div>Hotline: 0123 456 789</div>
+                        <div>--------------------------</div>
+                    </div>
+
+                    <!-- INFO -->
+                    <div class="section small">
+                        <div>Date: %s</div>
+                        <div>Customer: %s</div>
+                    </div>
+
+                    <hr/>
+
+                    <!-- ITEMS -->
+                    %s
+
+                    <hr/>
+
+                    <!-- SUMMARY -->
+                    <div class="line"><span>Total</span><span>%s</span></div>
+                    <div class="line"><span>Discount</span><span>-%s</span></div>
+                    <div class="line total"><span>Final</span><span>%s</span></div>
+
+                    <hr/>
+
+                    <!-- PAYMENT -->
+                    <div class="line"><span>Method</span><span>%s</span></div>
+                    <div class="line"><span>Received</span><span>%s</span></div>
+                    <div class="line"><span>Change</span><span>%s</span></div>
+
+                    <hr/>
+
+                    <!-- FOOTER INFO -->
+                    <div class="footer">
+                        Txn: %s <br/>
+                        Staff: %s
+                    </div>
+
+                    <hr/>
+
+                    <div class="center small">
+                        Thank you <br/>
+                        See you again!
+                    </div>
+
+                </body>
+                </html>
+                """.formatted(
+                payment.getPaymentDate().format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm")),
+                payment.getFullName() != null ? payment.getFullName() : "Guest",
+                items.toString(),
+
+                formatShort(order.getTotalPrice()),
+
+                formatShort(
+                        (order.getDiscountAmount() != null ? order.getDiscountAmount() : BigDecimal.ZERO)
+                                .add(payment.getPointDiscount() != null ? payment.getPointDiscount()
+                                        : BigDecimal.ZERO)),
+
+                formatShort(payment.getAmount()),
+                payment.getMethod() != null ? payment.getMethod().name() : "CASH",
+
+                formatShort(payment.getCashReceived()),
+                formatShort(payment.getChangeAmount()),
+                payment.getTransactionId(),
+                username);
+    }
+
+    // ------------------------ Helper methods ------------------------
+
+    @Override
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE') or hasRole('EMPLOYEE')")
+    public Page<PaymentResponse> getPaymentsByUserId(String userId, int page, int size) {
+        Pageable pageable = PageRequest.of(Math.max(0, page - 1), size);
+        return paymentRepository.findByUserId(userId, pageable)
+                .map(paymentMapper::toPaymentResponse);
+    }
+
+    @Override
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE') or hasRole('EMPLOYEE')")
+    public CustomerHistoryResponse getCustomerHistoryStats(String userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
+
+        Object statsObj = paymentRepository.getCustomerSpendingStats(userId);
+        long totalOrders = 0L;
+        BigDecimal totalSpent = BigDecimal.ZERO;
+        LocalDateTime lastPurchaseDate = null;
+
+        Object[] row = null;
+        if (statsObj instanceof Object[]) {
+            row = (Object[]) statsObj;
+        } else if (statsObj instanceof List<?> list && !list.isEmpty()) {
+            Object first = list.get(0);
+            if (first instanceof Object[]) {
+                row = (Object[]) first;
             }
-            document.add(table);
+        }
 
-            // Tổng tiền & giảm giá
-            Paragraph summaryHeader = new Paragraph("Tổng kết thanh toán", sectionFont);
-            summaryHeader.setSpacingBefore(15);
-            summaryHeader.setSpacingAfter(8);
-            document.add(summaryHeader);
+        if (row != null && row.length >= 3) {
+            totalOrders = row[0] != null ? ((Number) row[0]).longValue() : 0L;
+            totalSpent = toBigDecimal(row[1]);
+            lastPurchaseDate = row[2] != null ? (LocalDateTime) row[2] : null;
+        }
 
-            PdfPTable summary = new PdfPTable(2);
-            summary.setWidthPercentage(60);
-            summary.setHorizontalAlignment(Element.ALIGN_RIGHT);
-            summary.setSpacingAfter(10);
+        int loyaltyPoints = 0;
+        String membershipLevel = "NONE";
+        if (user.getCustomerProfile() != null) {
+            loyaltyPoints = user.getCustomerProfile().getLoyaltyPoints();
+            membershipLevel = user.getCustomerProfile().getMembershipLevel() != null
+                    ? user.getCustomerProfile().getMembershipLevel()
+                    : "NONE";
+        }
 
-            // Không viền, không khung
-            summary.getDefaultCell().setBorder(Rectangle.NO_BORDER);
+        return CustomerHistoryResponse.builder()
+                .totalOrders(totalOrders)
+                .totalSpent(totalSpent)
+                .lastPurchaseDate(lastPurchaseDate)
+                .loyaltyPoints(loyaltyPoints)
+                .membershipLevel(membershipLevel)
+                .build();
+    }
 
-            summary.addCell(noBorderCell("Tổng cộng:", boldFont, Element.ALIGN_LEFT));
-            summary.addCell(noBorderCell(formatCurrency(total), boldFont, Element.ALIGN_RIGHT));
+    private String formatShort(BigDecimal amount) {
+        if (amount == null)
+            return "0";
+        return String.format("%,.0f", amount);
+    }
 
-            if (order.getDiscountAmount() != null && order.getDiscountAmount().compareTo(BigDecimal.ZERO) > 0) {
-                summary.addCell(noBorderCell("Giảm giá:", infoFont, Element.ALIGN_LEFT));
-                summary.addCell(noBorderCell("-" + formatCurrency(order.getDiscountAmount()), infoFont, Element.ALIGN_RIGHT));
-            }
-
-            if (payment.getPointDiscount() != null && payment.getPointDiscount().compareTo(BigDecimal.ZERO) > 0) {
-                summary.addCell(noBorderCell("Giảm từ điểm:", infoFont, Element.ALIGN_LEFT));
-                summary.addCell(noBorderCell("-" + formatCurrency(payment.getPointDiscount()), infoFont, Element.ALIGN_RIGHT));
-            }
-
-            summary.addCell(noBorderCell("Thành tiền phải trả:", boldFont, Element.ALIGN_LEFT));
-            summary.addCell(noBorderCell(formatCurrency(order.getFinalAmount()), boldFont, Element.ALIGN_RIGHT));
-
-            if (payment.getCashReceived() != null) {
-                summary.addCell(noBorderCell("Tiền khách đưa:", boldFont, Element.ALIGN_LEFT));
-                summary.addCell(noBorderCell(formatCurrency(payment.getCashReceived()), boldFont, Element.ALIGN_RIGHT));
-
-                summary.addCell(noBorderCell("Tiền thối lại:", boldFont, Element.ALIGN_LEFT));
-                summary.addCell(noBorderCell(formatCurrency(payment.getChangeAmount()), boldFont, Element.ALIGN_RIGHT));
-            }
-
-            document.add(summary);
-            // Người lập hóa đơn
-            document.add(Chunk.NEWLINE);
-            String createdBy = SecurityContextHolder.getContext().getAuthentication().getName();
-            Paragraph signer = new Paragraph("Người lập hóa đơn: " + createdBy, infoFont);
-            signer.setAlignment(Element.ALIGN_RIGHT);
-            signer.setSpacingBefore(10);
-            signer.setSpacingAfter(25);
-            document.add(signer);
-
-            // Lời cảm ơn
-            Paragraph thanks = new Paragraph("Cảm ơn quý khách đã mua hàng!\nHẹn gặp lại!", boldFont);
-            thanks.setAlignment(Element.ALIGN_CENTER);
-            thanks.setSpacingBefore(20);
-            document.add(thanks);
-
-            document.close();
-            return out.toByteArray();
-
+    private BigDecimal toBigDecimal(Object value) {
+        if (value == null) {
+            return BigDecimal.ZERO;
+        }
+        if (value instanceof BigDecimal) {
+            return (BigDecimal) value;
+        }
+        if (value instanceof Number) {
+            return BigDecimal.valueOf(((Number) value).doubleValue());
+        }
+        try {
+            return new BigDecimal(value.toString().trim());
         } catch (Exception e) {
-            throw new AppException(ErrorCode.ERROR_CREATING_ORDER_PDF);
+            return BigDecimal.ZERO;
         }
     }
-
-// ------------------------ Helper methods ------------------------
-
-    private void addStyledTableHeader(PdfPTable table, String... headers) {
-        Font headFont = new Font(Font.HELVETICA, 12, Font.BOLD);
-        for (String header : headers) {
-            PdfPCell cell = new PdfPCell(new Phrase(header, headFont));
-            cell.setHorizontalAlignment(Element.ALIGN_CENTER);
-            cell.setBackgroundColor(Color.LIGHT_GRAY);
-            cell.setPadding(6);
-            table.addCell(cell);
-        }
-    }
-    private PdfPCell noBorderCell(String content, Font font, int align) {
-        PdfPCell cell = new PdfPCell(new Phrase(content, font));
-        cell.setBorder(Rectangle.NO_BORDER);
-        cell.setHorizontalAlignment(align);
-        cell.setVerticalAlignment(Element.ALIGN_MIDDLE);
-        cell.setPadding(4);
-        return cell;
-    }
-    private PdfPCell createCell(String content, Font font, int align) {
-        PdfPCell cell = new PdfPCell(new Phrase(content, font));
-        cell.setHorizontalAlignment(align);
-        cell.setVerticalAlignment(Element.ALIGN_MIDDLE);
-        cell.setPadding(5);
-        return cell;
-    }
-
-    private String formatCurrency(BigDecimal amount) {
-        return String.format("%,.0f VNĐ", amount);
-    }
-
-
-
 
 }
+
+    
+            
+

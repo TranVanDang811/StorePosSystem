@@ -1,9 +1,11 @@
 package com.possystem.backend.payment.dto;
 
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotEmpty;
 import lombok.*;
 import lombok.experimental.FieldDefaults;
 
-import java.math.BigDecimal;
+import java.util.List;
 
 @Data
 @Builder
@@ -11,6 +13,9 @@ import java.math.BigDecimal;
 @AllArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE)
 public class RefundRequest {
-    BigDecimal refundAmount;
+    @NotEmpty(message = "Danh sách trả hàng không được để trống")
+    @Valid
+    List<RefundItemRequest> items;
+
     String reason;
 }

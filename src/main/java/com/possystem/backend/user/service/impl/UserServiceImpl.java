@@ -23,6 +23,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.security.access.prepost.PostAuthorize;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -31,6 +32,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 @Slf4j
@@ -48,29 +50,56 @@ public class UserServiceImpl implements UserService {
     @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
     public UserResponse createUser(UserCreationRequest request) {
 
+        // Kiểm tra phân quyền để chống Privilege Escalation
+        var auth = SecurityContextHolder.getContext().getAuthentication();
+        boolean isCallerAdmin = auth != null && auth.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ADMIN") || a.getAuthority().equals("ROLE_ADMIN"));
+        boolean isCallerManager = auth != null && auth.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("MANAGE") || a.getAuthority().equals("ROLE_MANAGE"));
+
+        String requestedRole = request.getRoles();
+        if (!isCallerAdmin) {
+            if ("ADMIN".equalsIgnoreCase(requestedRole)) {
+                throw new AppException(ErrorCode.UNAUTHORIZED, "Chỉ Quản trị viên (ADMIN) mới có quyền tạo tài khoản ADMIN");
+            }
+            if (!isCallerManager && "MANAGE".equalsIgnoreCase(requestedRole)) {
+                throw new AppException(ErrorCode.UNAUTHORIZED, "Chỉ Quản trị viên (ADMIN) mới có quyền tạo tài khoản Quản lý");
+            }
+            if (!isCallerManager && !"CUSTOMER".equalsIgnoreCase(requestedRole)) {
+                throw new AppException(ErrorCode.UNAUTHORIZED, "Nhân viên (EMPLOYEE) chỉ có quyền tạo tài khoản Khách hàng (CUSTOMER)");
+            }
+        }
+
         User user = userMapper.toUser(request);
-        user.setPassword(passwordEncoder.encode(request.getPassword()));
 
         Role role = roleRepository.findByName(request.getRoles())
                 .orElseThrow(() -> new AppException(ErrorCode.ROLE_NOT_FOUND));
         user.setRoles(Set.of(role));
 
-
         if (role.getName().equals("CUSTOMER")) {
-            // Khách hàng thì không bắt buộc username, password, email
+            // Khách hàng thì không bắt buộc username, password
             user.setUsername(null);
             user.setPassword(null);
-            user.setEmail(null);
+            if (user.getEmail() != null && user.getEmail().isBlank()) {
+                user.setEmail(null);
+            }
 
             if (user.getCustomerProfile() != null) {
                 user.getCustomerProfile().setUser(user);
             }
         } else {
             // Nhân viên / admin thì vẫn yêu cầu username, password, email
-            if (request.getPassword() == null) {
+            if (request.getPassword() == null || request.getPassword().isBlank()) {
                 throw new AppException(ErrorCode.PASSWORD_REQUIRED);
             }
             user.setPassword(passwordEncoder.encode(request.getPassword()));
+
+            if (user.getUsername() != null && user.getUsername().isBlank()) {
+                user.setUsername(null);
+            }
+            if (user.getEmail() != null && user.getEmail().isBlank()) {
+                user.setEmail(null);
+            }
 
             if (user.getEmployeeProfile() != null) {
                 user.getEmployeeProfile().setUser(user);
@@ -86,13 +115,14 @@ public class UserServiceImpl implements UserService {
     }
 
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
-    public Page<UserResponse> getUsers(String roleName, int page, int size) {
-
-        Pageable pageable = PageRequest.of(page, size);
+    public Page<UserResponse> getUsers(List<String> roleNames, int page, int size) {
+        int pageIndex = Math.max(0, page);
+        int pageSize = size > 0 ? size : 10;
+        Pageable pageable = PageRequest.of(pageIndex, pageSize, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<User> users;
 
-        if (roleName != null && !roleName.isBlank()) {
-            users = userRepository.findByRoles_Name(roleName, pageable);
+        if (roleNames != null && !roleNames.isEmpty()) {
+            users = userRepository.findByRoles_NameIn(roleNames, pageable);
         } else {
             users = userRepository.findAll(pageable);
         }
@@ -110,57 +140,24 @@ public class UserServiceImpl implements UserService {
         return userMapper.toUserResponse(user);
     }
 
+    @Override
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
     public Page<UserResponse> searchUsers(String keyword, String roleName, UserStatus status, int page, int size) {
+        return searchUsers(keyword, roleName, null, status, page, size);
+    }
 
-        Pageable pageable = PageRequest.of(page, size);
-        Page<User> users;
+    @Override
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
+    public Page<UserResponse> searchUsers(String keyword, String roleName, List<String> roleNames, UserStatus status, int page, int size) {
+        int pageIndex = Math.max(0, page);
+        int pageSize = size > 0 ? size : 10;
+        Pageable pageable = PageRequest.of(pageIndex, pageSize, Sort.by(Sort.Direction.DESC, "createdAt"));
 
-        boolean hasKeyword = keyword != null && !keyword.isBlank();
-        boolean hasRole = roleName != null && !roleName.isBlank();
-        boolean hasStatus = status != null;
+        String kw = (keyword != null && !keyword.trim().isEmpty()) ? keyword.trim() : null;
+        String rName = (roleName != null && !roleName.trim().isEmpty()) ? roleName.trim() : null;
+        List<String> rNames = (roleNames != null && !roleNames.isEmpty()) ? roleNames : null;
 
-        if (hasKeyword && hasRole && hasStatus) {
-
-            users = userRepository
-                    .findByUsernameContainingIgnoreCaseOrFullNameContainingIgnoreCaseAndRoles_NameAndStatus(
-                            keyword, keyword, roleName, status, pageable);
-
-        } else if (hasKeyword && hasRole) {
-
-            users = userRepository
-                    .findByUsernameContainingIgnoreCaseOrFullNameContainingIgnoreCaseAndRoles_Name(
-                            keyword, keyword, roleName, pageable);
-
-        } else if (hasKeyword && hasStatus) {
-
-            users = userRepository
-                    .findByUsernameContainingIgnoreCaseOrFullNameContainingIgnoreCaseAndStatus(
-                            keyword, keyword, status, pageable);
-
-        } else if (hasRole && hasStatus) {
-
-            users = userRepository.findByRoles_NameAndStatus(roleName, status, pageable);
-
-        } else if (hasKeyword) {
-
-            users = userRepository
-                    .findByUsernameContainingIgnoreCaseOrFullNameContainingIgnoreCase(
-                            keyword, keyword, pageable);
-
-        } else if (hasRole) {
-
-            users = userRepository.findByRoles_Name(roleName, pageable);
-
-        } else if (hasStatus) {
-
-            users = userRepository.findByStatus(status, pageable);
-
-        } else {
-
-            users = userRepository.findAll(pageable);
-        }
-
+        Page<User> users = userRepository.searchUsers(kw, rName, rNames, status, pageable);
         return users.map(userMapper::toUserResponse);
     }
 
@@ -202,10 +199,10 @@ public class UserServiceImpl implements UserService {
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
 
         String currentUsername = SecurityContextHolder.getContext().getAuthentication().getName();
-        boolean isSelf = user.getUsername().equals(currentUsername);
+        boolean isSelf = user.getUsername() != null && user.getUsername().equals(currentUsername);
         boolean isAdmin = SecurityContextHolder.getContext().getAuthentication().getAuthorities()
                 .stream()
-                .anyMatch(auth -> auth.getAuthority().equals("ROLE_ADMIN"));
+                .anyMatch(auth -> auth.getAuthority().equals("ROLE_ADMIN") || auth.getAuthority().equals("ADMIN"));
 
         if (isSelf) {
             if (!passwordEncoder.matches(oldPassword, user.getPassword())) {
@@ -219,11 +216,14 @@ public class UserServiceImpl implements UserService {
         userRepository.save(user);
     }
 
+    @org.springframework.transaction.annotation.Transactional
     @PreAuthorize("hasRole('ADMIN')")
     public UserResponse updateUser(String id, UserUpdateRequest request) {
         // Tìm user theo id
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
+
+        userMapper.updateUser(user, request);
 
         // Cập nhật thông tin profile
         if (user.getCustomerProfile() != null && request.getCustomerProfile() != null) {
@@ -237,15 +237,13 @@ public class UserServiceImpl implements UserService {
         try {
             user = userRepository.save(user);
         } catch (DataIntegrityViolationException exception) {
-            throw new AppException(ErrorCode.USERNAME_ALREADY_EXISTS, exception);
+            throw new AppException(ErrorCode.DUPLICATE_RESOURCE, exception);
         }
 
-        userMapper.updateUser(user, request);
-
-        return userMapper.toUserResponse(userRepository.save(user));
+        return userMapper.toUserResponse(user);
     }
 
-    @PostAuthorize("hasRole('ADMIN') or returnObject.username == authentication.name")
+    @PostAuthorize("hasRole('ADMIN') or hasRole('MANAGE') or hasRole('EMPLOYEE') or (returnObject != null && returnObject.username != null && returnObject.username == authentication.name)")
     public UserResponse getUserById(String userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));

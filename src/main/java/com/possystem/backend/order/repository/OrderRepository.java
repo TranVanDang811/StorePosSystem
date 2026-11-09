@@ -66,4 +66,53 @@ public interface OrderRepository extends JpaRepository<Orders,String > {
             """)
     List<Orders> findLastOrderCodeOfDay(@Param("prefix") String prefix, Pageable pageable);
 
+    @Query("""
+            SELECT o FROM Orders o
+            WHERE 
+            (:fromDate IS NULL OR o.createdAt >= :fromDate)
+            AND (:toDate IS NULL OR o.createdAt <= :toDate)
+            AND (:status IS NULL OR o.status = :status)
+            AND (
+                :keyword IS NULL OR
+                LOWER(o.id) LIKE LOWER(CONCAT('%', :keyword, '%')) OR
+                LOWER(o.orderCode) LIKE LOWER(CONCAT('%', :keyword, '%')) OR
+                LOWER(COALESCE(o.discountCode, '')) LIKE LOWER(CONCAT('%', :keyword, '%'))
+            )
+            ORDER BY o.createdAt DESC
+            """)
+    Page<Orders> filterOrders(
+            @Param("fromDate") LocalDateTime fromDate,
+            @Param("toDate") LocalDateTime toDate,
+            @Param("status") OrderStatus status,
+            @Param("keyword") String keyword,
+            Pageable pageable
+    );
+
+    @Query("""
+            SELECT 
+                COUNT(o),
+                COUNT(CASE WHEN o.status = com.possystem.backend.common.enums.OrderStatus.PAID THEN 1 END),
+                COUNT(CASE WHEN o.status = com.possystem.backend.common.enums.OrderStatus.PENDING THEN 1 END),
+                COUNT(CASE WHEN o.status = com.possystem.backend.common.enums.OrderStatus.HOLD THEN 1 END),
+                COUNT(CASE WHEN o.status = com.possystem.backend.common.enums.OrderStatus.CANCELED THEN 1 END),
+                SUM(CASE WHEN o.status = com.possystem.backend.common.enums.OrderStatus.PAID THEN COALESCE(o.finalAmount, o.totalPrice) END)
+            FROM Orders o
+            WHERE 
+            (:fromDate IS NULL OR o.createdAt >= :fromDate)
+            AND (:toDate IS NULL OR o.createdAt <= :toDate)
+            AND (:status IS NULL OR o.status = :status)
+            AND (
+                :keyword IS NULL OR
+                LOWER(o.id) LIKE LOWER(CONCAT('%', :keyword, '%')) OR
+                LOWER(o.orderCode) LIKE LOWER(CONCAT('%', :keyword, '%')) OR
+                LOWER(COALESCE(o.discountCode, '')) LIKE LOWER(CONCAT('%', :keyword, '%'))
+            )
+            """)
+    Object getOrderSummaryStats(
+            @Param("fromDate") LocalDateTime fromDate,
+            @Param("toDate") LocalDateTime toDate,
+            @Param("status") OrderStatus status,
+            @Param("keyword") String keyword
+    );
+
 }

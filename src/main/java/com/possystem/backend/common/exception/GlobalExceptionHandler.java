@@ -55,9 +55,10 @@ public class GlobalExceptionHandler {
     // Lỗi khi JSON không đọc được
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ApiResponse<?>> handleHttpMessageNotReadable(HttpMessageNotReadableException ex) {
+        log.warn("Invalid HTTP message payload: {}", ex.getMessage());
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
-                .body(ApiResponse.error(HttpStatus.BAD_REQUEST.value(), "Invalid JSON format"));
+                .body(ApiResponse.error(HttpStatus.BAD_REQUEST.value(), "Invalid JSON format or unreadable request payload"));
     }
 
     // Thiếu request param

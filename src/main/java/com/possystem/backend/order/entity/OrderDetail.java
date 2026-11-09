@@ -18,15 +18,23 @@ public class OrderDetail {
     @GeneratedValue(strategy = GenerationType.UUID)
     String id;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "order_id", nullable = false)
     Orders order;  // Đơn hàng chứa sản phẩm này
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "product_id", nullable = false)
     Product product;
+
 
     @Column(nullable = false)
     Integer quantity;  // Số lượng sản phẩm mua
+
+    @Builder.Default
+    @Column(nullable = false)
+    int refundedQuantity = 0;
+
+    BigDecimal price;
 
     @Column(nullable = false)
     BigDecimal totalPrice;  // Tổng tiền cho sản phẩm (productPrice * quantity)

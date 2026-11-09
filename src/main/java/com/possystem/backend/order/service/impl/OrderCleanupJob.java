@@ -21,16 +21,18 @@ public class OrderCleanupJob {
     @Scheduled(fixedRate = 60000) // chạy mỗi 60s
     public void deleteExpiredPendingOrders() {
 
-        LocalDateTime expiredTime = LocalDateTime.now().minusMinutes(5);
+        LocalDateTime expiredTime = LocalDateTime.now().minusMinutes(30);
 
         List<Orders> expiredOrders =
                 orderRepository.findByStatusAndCreatedAtBefore(OrderStatus.PENDING, expiredTime);
 
         if (!expiredOrders.isEmpty()) {
+            for (Orders order : expiredOrders) {
+                order.setStatus(OrderStatus.CANCELED);
+            }
+            orderRepository.saveAll(expiredOrders);
 
-            orderRepository.deleteAll(expiredOrders);
-
-            log.info("Deleted {} expired PENDING orders", expiredOrders.size());
+            log.info("Cancelled {} expired PENDING orders", expiredOrders.size());
         }
     }
 }

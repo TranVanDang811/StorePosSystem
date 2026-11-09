@@ -1,6 +1,7 @@
 package com.possystem.backend.role.controller;
 
 import com.possystem.backend.common.response.ApiResponse;
+import jakarta.validation.Valid;
 import com.possystem.backend.role.dto.RoleRequest;
 import com.possystem.backend.role.dto.RoleResponse;
 import com.possystem.backend.role.service.RoleService;
@@ -25,7 +26,7 @@ public class RoleController {
     RoleService roleService;
     @PostMapping
     @Operation(summary = "Create new role", description = "Add new role to the system")
-    ApiResponse<RoleResponse> create(@RequestBody RoleRequest request) {
+    ApiResponse<RoleResponse> create(@RequestBody @Valid RoleRequest request) {
         return ApiResponse.<RoleResponse>builder()
                 .result(roleService.create(request))
                 .build();

@@ -23,6 +23,11 @@ import org.springframework.web.multipart.MultipartFile;
 import java.util.List;
 import java.util.Map;
 
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.ConstraintViolationException;
+import jakarta.validation.Validator;
+import java.util.Set;
+
 @Slf4j
 @RestController
 @RequestMapping("/products")
@@ -31,32 +36,56 @@ import java.util.Map;
 @Tag(name = "Product Management", description = "Product Management API")
 public class ProductController {
     ProductService productService;
+    ObjectMapper objectMapper;
+    Validator validator;
 
     @PostMapping(consumes = {MediaType.MULTIPART_FORM_DATA_VALUE})
     @Operation(summary = "Create product", description = "Add new products (with images). Transfer `product` as JSON and `images` as files.")
     public ApiResponse<ProductResponse> create(
             @RequestPart("product") String productJson,
             @RequestPart(value = "images", required = false) MultipartFile images) {
-        ObjectMapper objectMapper = new ObjectMapper();
         ProductRequest productRequest;
         try {
             productRequest = objectMapper.readValue(productJson, ProductRequest.class);
         } catch (Exception e) {
             throw new AppException(ErrorCode.INVALID_JSON);
         }
+        Set<ConstraintViolation<ProductRequest>> violations = validator.validate(productRequest);
+        if (!violations.isEmpty()) {
+            throw new ConstraintViolationException(violations);
+        }
         return ApiResponse.<ProductResponse>builder()
                 .result(productService.create(productRequest, images))
                 .build();
     }
 
-    // Get a list of products with pagination
+    @PutMapping(value = "/{productId}", consumes = {MediaType.MULTIPART_FORM_DATA_VALUE})
+    @Operation(summary = "Update product", description = "Update product details (with optional new image). Transfer `product` as JSON and `images` as files.")
+    public ApiResponse<ProductResponse> update(
+            @PathVariable String productId,
+            @RequestPart("product") String productJson,
+            @RequestPart(value = "images", required = false) MultipartFile images) {
+        ProductRequest productRequest;
+        try {
+            productRequest = objectMapper.readValue(productJson, ProductRequest.class);
+        } catch (Exception e) {
+            throw new AppException(ErrorCode.INVALID_JSON);
+        }
+        Set<ConstraintViolation<ProductRequest>> violations = validator.validate(productRequest);
+        if (!violations.isEmpty()) {
+            throw new ConstraintViolationException(violations);
+        }
+        return ApiResponse.<ProductResponse>builder()
+                .result(productService.update(productId, productRequest, images))
+                .build();
+    }
+
+    // Get a list of products with pagination or filter
     @GetMapping
-    @Operation(summary = "Get all products", description = "Get a paginated list of products")
-    ApiResponse<Page<ProductResponse>> getProducts(
-            @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "5") int size) {
+    @Operation(summary = "Get all products", description = "Get a paginated and filtered list of products")
+    public ApiResponse<Page<ProductResponse>> getProducts(ProductFilterRequest request) {
         return ApiResponse.<Page<ProductResponse>>builder()
-                .result(productService.getProducts(page - 1, size))
+                .result(productService.filterProducts(request))
                 .build();
     }
 
@@ -81,7 +110,7 @@ public class ProductController {
     // Delete product
     @DeleteMapping("/{productId}")
     @Operation(summary = "Delete product", description = "Delete product by ID")
-    ApiResponse<Void>deleteProduct(@PathVariable String productId) {
+    ApiResponse<Void> deleteProduct(@PathVariable String productId) {
         productService.deleteProduct(productId);
         return ApiResponse.<Void>builder().message("Delete successfully").build();
     }

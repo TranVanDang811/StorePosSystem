@@ -1,13 +1,80 @@
+server:
+  port: ${SERVER_PORT:8080}
+  shutdown: graceful
+  error:
+    include-stacktrace: never
+    include-message: never
+    include-binding-errors: never
+    include-exception: false
+  compression:
+    enabled: true
+    mime-types: application/json,text/html,text/xml,text/plain,application/xml
+    min-response-size: 1024
+  tomcat:
+    threads:
+      max: ${TOMCAT_MAX_THREADS:50}
+      min-spare: ${TOMCAT_MIN_SPARE_THREADS:10}
+    max-connections: 2000
+    accept-count: 100
+    connection-timeout: 20000
 
 spring:
   config:
     activate:
       on-profile: prod
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+  datasource:
+    hikari:
+      maximum-pool-size: ${HIKARI_MAX_POOL_SIZE:10}
+      minimum-idle: ${HIKARI_MIN_IDLE:3}
+      idle-timeout: 300000
+      max-lifetime: 1800000
+      connection-timeout: 20000
+      leak-detection-threshold: 5000
+      pool-name: PosHikariPool
+  jpa:
+    show-sql: false
+    open-in-view: false
+    hibernate:
+      ddl-auto: ${JPA_DDL_AUTO:validate}
+    properties:
+      hibernate:
+        format_sql: false
+        jdbc.batch_size: 25
+        order_inserts: true
+        order_updates: true
+
+  flyway:
+    enabled: ${ENABLE_FLYWAY:true}
+    baseline-on-migrate: true
+    baseline-version: 0
+    validate-on-migrate: true
+    locations: classpath:db/migration
 
 open:
   api:
-    title: POS System API
+    title: POS System API (Production)
     version: v1.0.0
-    description: API documentation for POS System
-    serverUrl: http://localhost:8080/backend
-    serverName: Server prod
+    description: API documentation for POS System Production Environment
+    serverUrl: ${SERVER_URL:http://localhost:8080/backend}
+    serverName: Production Server
+
+springdoc:
+  api-docs:
+    enabled: ${ENABLE_SWAGGER:false}
+  swagger-ui:
+    enabled: ${ENABLE_SWAGGER:false}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when-authorized
+
+logging:
+  file:
+    path: ${LOG_PATH:logs}

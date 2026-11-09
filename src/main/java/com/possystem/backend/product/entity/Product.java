@@ -30,15 +30,18 @@ public class    Product extends AbstractEntity {
     int stock;     // tồn kho
     String imageUrl;
 
+    @Version
+    Long version;
+
     @Enumerated(EnumType.STRING)
     ProductStatus status;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JsonIgnore
     @JoinColumn(name = "supplier_id", nullable = false)
     Supplier supplier;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JsonIgnore
     @JoinColumn(name = "category_id", nullable = false)
     Category category;  // INGREDIENT, DRINK, CAKE, OTHER

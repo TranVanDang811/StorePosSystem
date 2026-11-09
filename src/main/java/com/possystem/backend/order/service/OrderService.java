@@ -3,6 +3,7 @@ package com.possystem.backend.order.service;
 import com.possystem.backend.common.enums.OrderStatus;
 import com.possystem.backend.order.dto.OrderRequest;
 import com.possystem.backend.order.dto.OrderResponse;
+import com.possystem.backend.order.dto.OrderSummaryResponse;
 import com.possystem.backend.order.dto.RevenueStatsResponse;
 import org.springframework.data.domain.Page;
 import java.time.LocalDateTime;
@@ -19,4 +20,18 @@ public interface OrderService {
     void holdOrder(String orderId);
     OrderResponse updateOrder(String orderId, OrderRequest request);
     Page<OrderResponse> getOrdersByStatus(OrderStatus status, int page, int size) ;
+    Page<OrderResponse> getOrders(
+            int page,
+            int size,
+            String fromDate,
+            String toDate,
+            String status,
+            String keyword
+    );
+    OrderSummaryResponse getOrderSummary(
+            String fromDate,
+            String toDate,
+            String status,
+            String keyword
+    );
 }

@@ -1,13 +1,40 @@
-
 spring:
   config:
     activate:
       on-profile: dev
+  jpa:
+    show-sql: true
+    hibernate:
+      ddl-auto: ${JPA_DDL_AUTO:update}
+    properties:
+      hibernate:
+        format_sql: true
 
 open:
   api:
-    title: POS System API
+    title: POS System API (Development)
     version: v1.0.0
-    description: API documentation for POS System
-    serverUrl: http://localhost:8080/backend
-    serverName: Server dev
+    description: API documentation for POS System Development Environment
+    serverUrl: ${SERVER_URL:http://localhost:8080/backend}
+    serverName: Local Dev Server
+
+springdoc:
+  api-docs:
+    enabled: true
+  swagger-ui:
+    enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,mappings
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    root: INFO
+    com.possystem.backend: DEBUG
+    org.hibernate.SQL: DEBUG

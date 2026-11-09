@@ -20,7 +20,7 @@ public class CustomerProfile {
     int loyaltyPoints; // điểm tích lũy
     String membershipLevel; // hạng thành viên (Silver, Gold...)
 
-    @OneToOne
+    @OneToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id")
     @JsonBackReference
     User user;

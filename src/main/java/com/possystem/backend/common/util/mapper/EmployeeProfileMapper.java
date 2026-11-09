@@ -7,6 +7,7 @@ import org.mapstruct.MappingTarget;
 
 @Mapper(componentModel = "spring")
 public interface EmployeeProfileMapper {
+    EmployeeProfile toEmployeeProfile(EmployeeProfileRequest dto);
     void updateEmployeeProfileFromDto(EmployeeProfileRequest dto, @MappingTarget EmployeeProfile entity);
 }
 

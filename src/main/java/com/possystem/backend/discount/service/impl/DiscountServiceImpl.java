@@ -1,6 +1,5 @@
 package com.possystem.backend.discount.service.impl;
 
-
 import com.possystem.backend.common.exception.AppException;
 import com.possystem.backend.common.exception.ErrorCode;
 import com.possystem.backend.common.util.mapper.DiscountMapper;
@@ -31,11 +30,10 @@ import java.util.List;
 @RequiredArgsConstructor
 @Slf4j
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
-public class DiscountServiceImpl implements DiscountService{
+public class DiscountServiceImpl implements DiscountService {
     final DiscountRepository discountRepository;
     final DiscountMapper discountMapper;
     CustomerProfileRepository customerProfileRepository;
-
 
     private boolean isActive(LocalDateTime startDate, LocalDateTime endDate) {
         LocalDateTime now = LocalDateTime.now();
@@ -45,7 +43,7 @@ public class DiscountServiceImpl implements DiscountService{
                 && (now.isBefore(endDate) || now.isEqual(endDate));
     }
 
-    @PreAuthorize("hasRole('ADMIN')")
+    // Scheduled task runs as system background job, no SecurityContext
     @Scheduled(cron = "0 0 0 * * *")
     public void updateDiscountStatusAutomatically() {
         LocalDateTime now = LocalDateTime.now();
@@ -67,7 +65,8 @@ public class DiscountServiceImpl implements DiscountService{
 
         log.info("---->Completed status update {} discount.", updatedCount);
     }
-    @PreAuthorize("hasRole('ADMIN')")
+
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
     public DiscountResponse createDiscount(DiscountRequest request) {
         Discount discount = new Discount();
 
@@ -77,62 +76,64 @@ public class DiscountServiceImpl implements DiscountService{
         discount.setCode(request.getCode());
         discount.setValue(request.getValue());
 
-        discount.setActive(isActive(discount.getStartDate(), discount.getEndDate()));
+        boolean timeValid = isActive(discount.getStartDate(), discount.getEndDate());
+        discount.setActive(request.isActive() && timeValid);
 
-        log.info("Active status before save: {}", discount.isActive());
         Discount savedDiscount = discountRepository.save(discount);
-        log.info("Active status after save: {}", savedDiscount.isActive());
-
         return discountMapper.toDiscountResponse(savedDiscount);
     }
-    @PreAuthorize("hasRole('ADMIN')")
+
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
     public DiscountResponse updateDiscount(String id, DiscountRequest request) {
         Discount discount = discountRepository.findById(id)
-                .orElseThrow(() -> new AppException(ErrorCode.DISCOUNT_NOT_FOUND_MESSAGE,id));
+                .orElseThrow(() -> new AppException(ErrorCode.DISCOUNT_NOT_FOUND_MESSAGE, id));
 
         discountMapper.updateDiscountFromRequest(request, discount);
 
-
-        discount.setActive(isActive(discount.getStartDate(), discount.getEndDate()));
+        boolean timeValid = isActive(discount.getStartDate(), discount.getEndDate());
+        discount.setActive(request.isActive() && timeValid);
 
         Discount updatedDiscount = discountRepository.save(discount);
-
         return discountMapper.toDiscountResponse(updatedDiscount);
     }
 
-
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
     public void deleteDiscount(String id) {
         if (!discountRepository.existsById(id)) {
-            throw new AppException(ErrorCode.DISCOUNT_NOT_FOUND_MESSAGE,id);
+            throw new AppException(ErrorCode.DISCOUNT_NOT_FOUND_MESSAGE, id);
         }
         discountRepository.deleteById(id);
     }
-    @PreAuthorize("hasRole('ADMIN')")
+
+    @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
     public DiscountResponse getDiscountById(String id) {
         Discount discount = discountRepository.findById(id)
-                .orElseThrow(() -> new AppException(ErrorCode.DISCOUNT_NOT_FOUND_MESSAGE,id));
+                .orElseThrow(() -> new AppException(ErrorCode.DISCOUNT_NOT_FOUND_MESSAGE, id));
         return discountMapper.toDiscountResponse(discount);
     }
-    @PreAuthorize("hasRole('ADMIN')")
+
+    @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
     public List<DiscountResponse> getAllDiscounts() {
         return discountRepository.findAll()
                 .stream()
                 .map(discountMapper::toDiscountResponse)
                 .toList(); // Replaced collect with toList()
     }
-    @PreAuthorize("hasRole('ADMIN')")
+
+    @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
     public List<DiscountResponse> getActiveDiscounts() {
-        return discountRepository.findAll()
+        LocalDateTime now = LocalDateTime.now();
+
+        return discountRepository.findActiveDiscounts(now)
                 .stream()
-                .filter(Discount::isActive)
                 .map(discountMapper::toDiscountResponse)
                 .toList();
     }
-    @PreAuthorize("hasRole('ADMIN')")
+
+    @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
     public DiscountResponse getByCode(String code) {
         Discount discount = discountRepository.findByCode(code)
-                .orElseThrow(() -> new AppException(ErrorCode.COUPON_NOT_EXISTS,code));
+                .orElseThrow(() -> new AppException(ErrorCode.COUPON_NOT_EXISTS, code));
 
         // Kiểm tra ngày hết hạn
         LocalDateTime now = LocalDateTime.now();
@@ -178,8 +179,8 @@ public class DiscountServiceImpl implements DiscountService{
 
     @Transactional
     public PointDiscountResult applyPointDiscount(CustomerProfile profile,
-                                                  Integer requestUsedPoints,
-                                                  BigDecimal orderAmount) {
+            Integer requestUsedPoints,
+            BigDecimal orderAmount) {
 
         if (profile == null || requestUsedPoints == null || requestUsedPoints <= 0) {
             return new PointDiscountResult(BigDecimal.ZERO, 0);
@@ -189,24 +190,25 @@ public class DiscountServiceImpl implements DiscountService{
             throw new AppException(ErrorCode.NOT_ENOUGH_POINTS);
         }
 
-        // 1 point = 1đ
-        BigDecimal discountAmount = BigDecimal.valueOf(requestUsedPoints)
-                .multiply(BigDecimal.valueOf(1));
+        // 1 point = 1 VNĐ
+        final BigDecimal POINT_VALUE = BigDecimal.ONE;
+        BigDecimal requestedDiscount = BigDecimal.valueOf(requestUsedPoints).multiply(POINT_VALUE);
 
+        BigDecimal discountAmount;
         int actualUsedPoints;
 
         // Nếu giảm vượt quá tiền đơn
-        if (discountAmount.compareTo(orderAmount) > 0) {
-
+        if (requestedDiscount.compareTo(orderAmount) > 0) {
             discountAmount = orderAmount;
-
-            actualUsedPoints = orderAmount
-                    .divide(BigDecimal.valueOf(1000))
-                    .intValue();
+            actualUsedPoints = orderAmount.divide(POINT_VALUE, 0, RoundingMode.CEILING).intValue();
         } else {
-
+            discountAmount = requestedDiscount;
             actualUsedPoints = requestUsedPoints;
         }
+
+        // Đảm bảo không trừ âm và không trừ vượt quá điểm hiện có
+        actualUsedPoints = Math.min(actualUsedPoints, profile.getLoyaltyPoints());
+        actualUsedPoints = Math.max(0, actualUsedPoints);
 
         // Trừ điểm
         profile.setLoyaltyPoints(profile.getLoyaltyPoints() - actualUsedPoints);

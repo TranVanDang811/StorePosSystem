@@ -9,7 +9,10 @@ import com.possystem.backend.order.repository.OrderRepository;
 import com.possystem.backend.payment.entity.Payment;
 import com.possystem.backend.payment.repository.PaymentRepository;
 import com.possystem.backend.report.dto.*;
+import com.possystem.backend.report.repository.ReportRepository;
 import com.possystem.backend.report.service.ReportService;
+import com.possystem.backend.importorder.repository.ImportOrderRepository;
+import com.possystem.backend.product.repository.ProductRepository;
 import com.possystem.backend.user.repository.UserRepository;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -38,6 +41,37 @@ public class ReportServiceImpl implements ReportService {
     PaymentRepository paymentRepository;
     UserRepository userRepository;
     ReportMapper reportMapper;
+    ReportRepository reportRepository;
+    ProductRepository productRepository;
+    ImportOrderRepository importOrderRepository;
+
+    public List<ProductSalesReportResponse> getProductReport(
+            LocalDateTime from,
+            LocalDateTime to,
+            String keyword,
+            String categoryName
+    ) {
+        List<Object[]> rows = reportRepository.getProductSalesReport(from, to, keyword, categoryName);
+        if (rows == null || rows.isEmpty()) {
+            return List.of();
+        }
+
+        return rows.stream().map(row -> {
+            String productCode = row[0] != null ? row[0].toString() : "";
+            String productName = row[1] != null ? row[1].toString() : "";
+            String category = row[2] != null ? row[2].toString() : "Chưa phân loại";
+            Long quantity = row[3] != null ? ((Number) row[3]).longValue() : 0L;
+            BigDecimal revenue = toBigDecimal(row[4]);
+
+            return ProductSalesReportResponse.builder()
+                    .productCode(productCode)
+                    .productName(productName)
+                    .categoryName(category)
+                    .totalQuantity(quantity)
+                    .totalRevenue(revenue)
+                    .build();
+        }).toList();
+    }
 
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
     @Override
@@ -162,12 +196,15 @@ public class ReportServiceImpl implements ReportService {
         // revenue
         BigDecimal todayRevenue =
                 paymentRepository.getRevenueBetween(startDay, endDay);
+        if (todayRevenue == null) todayRevenue = BigDecimal.ZERO;
 
         BigDecimal weekRevenue =
                 paymentRepository.getRevenueBetween(startWeek, endDay);
+        if (weekRevenue == null) weekRevenue = BigDecimal.ZERO;
 
         BigDecimal monthRevenue =
                 paymentRepository.getRevenueBetween(startMonth, endDay);
+        if (monthRevenue == null) monthRevenue = BigDecimal.ZERO;
 
         // orders today
         long todayOrders =
@@ -207,6 +244,14 @@ public class ReportServiceImpl implements ReportService {
                 ))
                 .toList();
 
+        // inventory alerts
+        long outOfStockCount = productRepository.countOutOfStock();
+        long lowStockCount = productRepository.countLowStock(5);
+
+        // import orders alerts (pending & overdue > 3 days)
+        long pendingImportCount = importOrderRepository.countPendingImportOrders();
+        long overdueImportCount = importOrderRepository.countOverdueImportOrders(LocalDateTime.now().minusDays(3));
+
         return DashboardReportResponse.builder()
                 .totalCustomersToday(totalCustomersToday)
                 .newMembersToday(newMembersToday)
@@ -217,6 +262,27 @@ public class ReportServiceImpl implements ReportService {
                 .revenueLast7Days(revenueLast7Days)
                 .topProductsToday(topProducts)
                 .recentOrders(recentOrders)
+                .outOfStockCount(outOfStockCount)
+                .lowStockCount(lowStockCount)
+                .pendingImportCount(pendingImportCount)
+                .overdueImportCount(overdueImportCount)
                 .build();
+    }
+
+    private BigDecimal toBigDecimal(Object value) {
+        if (value == null) {
+            return BigDecimal.ZERO;
+        }
+        if (value instanceof BigDecimal) {
+            return (BigDecimal) value;
+        }
+        if (value instanceof Number) {
+            return BigDecimal.valueOf(((Number) value).doubleValue());
+        }
+        try {
+            return new BigDecimal(value.toString().trim());
+        } catch (Exception e) {
+            return BigDecimal.ZERO;
+        }
     }
 }

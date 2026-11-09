@@ -18,11 +18,11 @@ import java.util.List;
 public class OpenApiConfig {
 
     @Bean
-    public OpenAPI apiInfo(@Value("${open.api.title}")String title,
-                           @Value("${open.api.version}")String version,
-                           @Value("${open.api.description}")String description,
-                           @Value("${open.api.serverUrl}")String serverUrl,
-                           @Value("${open.api.serverName}")String serverName){
+    public OpenAPI apiInfo(@Value("${open.api.title:POS System API}") String title,
+                           @Value("${open.api.version:v1.0.0}") String version,
+                           @Value("${open.api.description:API documentation for POS System}") String description,
+                           @Value("${open.api.serverUrl:http://localhost:8080/backend}") String serverUrl,
+                           @Value("${open.api.serverName:Server}") String serverName){
         return new OpenAPI()
                 .info(new Info()
                         .title(title)

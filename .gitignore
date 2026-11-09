@@ -29,5 +29,14 @@ build/
 !**/src/main/**/build/
 !**/src/test/**/build/
 
+### Environment Variables ###
+.env
+.env.local
+*.env
+
+### Logs ###
+logs/
+*.log
+
 ### VS Code ###
 .vscode/

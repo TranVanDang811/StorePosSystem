@@ -20,9 +20,9 @@ import java.time.LocalDateTime;
 @FieldDefaults(level = AccessLevel.PRIVATE)
 @Entity
 public class Payment extends AbstractEntity {
-        @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id", nullable = true)
-        User user;
+    User user;
     @Column(nullable = false)
     BigDecimal amount; // Tổng tiền thanh toán
     @Column(precision = 15, scale = 2)

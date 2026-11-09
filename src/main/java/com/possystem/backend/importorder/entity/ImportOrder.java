@@ -9,6 +9,7 @@ import lombok.experimental.FieldDefaults;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -32,7 +33,6 @@ public class ImportOrder {
 
     int totalQuantity;
 
-
     BigDecimal totalPrice;
 
     @Enumerated(EnumType.STRING)
@@ -44,14 +44,27 @@ public class ImportOrder {
     @OneToMany(mappedBy = "importOrder", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     List<ImportOrderDetail> importDetails = new ArrayList<>();
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "supplier_id")
     private Supplier supplier;
 
     @Transient
     public int getTotalReceivedQuantity() {
+        if (importDetails == null) return 0;
         return importDetails.stream()
                 .mapToInt(ImportOrderDetail::getReceivedQuantity)
                 .sum();
+    }
+
+    @Transient
+    public boolean isOverdue() {
+        if (importDate == null) return false;
+        return importDate.plusDays(3).isBefore(LocalDateTime.now());
+    }
+
+    @Transient
+    public long getDaysSinceOrder() {
+        if (importDate == null) return 0;
+        return ChronoUnit.DAYS.between(importDate, LocalDateTime.now());
     }
 }

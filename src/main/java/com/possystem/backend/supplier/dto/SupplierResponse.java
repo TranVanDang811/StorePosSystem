@@ -14,4 +14,6 @@ public class SupplierResponse {
     String phone;
     String email;
     String address;
+    Long productCount;
+    Long importOrderCount;
 }

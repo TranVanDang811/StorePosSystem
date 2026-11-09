@@ -29,11 +29,11 @@ public class Shift {
     @Column(unique = true)
     String shiftCode;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "opened_by")
     User openedBy;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "closed_by")
     User closedBy;
 

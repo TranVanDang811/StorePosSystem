@@ -4,6 +4,7 @@ import com.nimbusds.jose.JOSEException;
 import com.possystem.backend.auth.dto.*;
 import com.possystem.backend.auth.service.AuthenticationService;
 import com.possystem.backend.common.response.ApiResponse;
+import jakarta.validation.Valid;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.AccessLevel;
@@ -28,7 +29,7 @@ public class AuthenticationController {
 
     @PostMapping("/token")
     @Operation(summary = "Login", description = "Generate access token and refresh token from login information")
-    ApiResponse<AuthenticationResponse> authenticate(@RequestBody AuthenticationRequest request) {
+    ApiResponse<AuthenticationResponse> authenticate(@RequestBody @Valid AuthenticationRequest request) {
         var result = authenticationService.authenticate(request);
         return ApiResponse.<AuthenticationResponse>builder().result(result).build();
     }

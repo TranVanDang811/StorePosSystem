@@ -25,5 +25,7 @@ public class ImportOrderResponse {
     String supplierId;
     String supplierName;
     int totalReceivedQuantity;
+    boolean overdue;
+    long daysSinceOrder;
     List<ImportOrderDetailResponse> importDetails;
 }

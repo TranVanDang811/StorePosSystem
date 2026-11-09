@@ -37,6 +37,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -55,37 +56,42 @@ public class ImportOrderServiceImpl implements ImportOrderService {
     ImportOrderRepository importOrderRepository;
     ImportOrderMapper importOrderMapper;
     ImportOrderDetailRepository importOrderDetailRepository;
+
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
     @Transactional
     public ImportOrderResponse createImportOrder(ImportOrderCreateRequest request) {
+        if (request.getImportDetails() == null || request.getImportDetails().isEmpty()) {
+            throw new IllegalArgumentException("Đơn nhập hàng phải có ít nhất một sản phẩm.");
+        }
+
         try {
-            // Get supplier
             Supplier supplier = supplierRepository.findById(request.getSupplierId())
                     .orElseThrow(() -> new AppException(ErrorCode.SUPPLIER_NOT_FOUND, request.getSupplierId()));
 
-            // Mapping request -> entity
             ImportOrder order = importOrderMapper.toEntity(request);
             order.setSupplier(supplier);
+            order.setImportDate(LocalDateTime.now());
+            order.setImportUpdateDate(LocalDateTime.now());
 
             List<ImportOrderDetail> details = new ArrayList<>();
             BigDecimal totalPrice = BigDecimal.ZERO;
             int totalQuantity = 0;
 
-            // Create a detailed list
             for (ImportOrderDetailRequest d : request.getImportDetails()) {
                 Product product = productRepository.findById(d.getProductId())
                         .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND, d.getProductId()));
-                if (!product.getSupplier().getId().equals(request.getSupplierId())) {
+
+                if (product.getSupplier() == null || !product.getSupplier().getId().equals(request.getSupplierId())) {
                     throw new AppException(ErrorCode.PRODUCT_NOT_BELONG_TO_SUPPLIER,
-                            product.getName() + " Not owned by this supplier");
+                            product.getName() + " không thuộc nhà cung cấp này");
                 }
+
                 ImportOrderDetail detail = new ImportOrderDetail();
-                if (request.getImportDetails() == null || request.getImportDetails().isEmpty()) {
-                    throw new IllegalArgumentException("Import order must have at least one product.");
-                }
                 detail.setImportOrder(order);
                 detail.setProduct(product);
                 detail.setQuantity(d.getQuantity());
+                detail.setReceivedQuantity(0);
+                detail.setConfirmedQuantity(0);
                 detail.setImportPrice(d.getImportPrice());
 
                 totalQuantity += d.getQuantity();
@@ -99,6 +105,7 @@ public class ImportOrderServiceImpl implements ImportOrderService {
             order.setTotalQuantity(totalQuantity);
             order.setStatus(ImportStatus.DRAFT);
             order.setConfirmStatus(ConfirmStatus.UNCONFIRMED);
+
             ImportOrder savedOrder = importOrderRepository.save(order);
 
             ImportOrder fullOrder = importOrderRepository.findByIdWithDetails(savedOrder.getId())
@@ -112,7 +119,6 @@ public class ImportOrderServiceImpl implements ImportOrderService {
         }
     }
 
-
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
     @Transactional
     public ImportOrderResponse updateImportOrder(String orderId, ImportOrderUpdateRequest request) {
@@ -120,30 +126,24 @@ public class ImportOrderServiceImpl implements ImportOrderService {
                 .orElseThrow(() -> new AppException(ErrorCode.IMPORT_ORDER_NOT_FOUND, orderId));
 
         if (order.getStatus() != ImportStatus.DRAFT) {
-            throw new IllegalStateException("Only DRAFT orders can be updated.");
+            throw new IllegalStateException("Chỉ được sửa đơn nhập hàng ở trạng thái DRAFT.");
         }
 
-        // Update note
         order.setNote(request.getNote());
         order.setImportUpdateDate(LocalDateTime.now());
 
-        // Recalculate total amount and total quantity
         BigDecimal totalPrice = BigDecimal.ZERO;
         int totalQuantity = 0;
 
-        // Create a map to quickly look up details by productId
         Map<String, ImportOrderDetail> detailMap = order.getImportDetails().stream()
                 .collect(Collectors.toMap(d -> d.getProduct().getId(), d -> d));
 
-        // Iterate through the list in the request to update each row
         for (ImportOrderDetailRequest d : request.getImportDetails()) {
             ImportOrderDetail detail = detailMap.get(d.getProductId());
             if (detail != null) {
-                // Available -> updated
                 detail.setQuantity(d.getQuantity());
                 detail.setImportPrice(d.getImportPrice());
             } else {
-                // None -> add new
                 Product product = productRepository.findById(d.getProductId())
                         .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND, d.getProductId()));
 
@@ -151,10 +151,13 @@ public class ImportOrderServiceImpl implements ImportOrderService {
                 newDetail.setImportOrder(order);
                 newDetail.setProduct(product);
                 newDetail.setQuantity(d.getQuantity());
+                newDetail.setReceivedQuantity(0);
+                newDetail.setConfirmedQuantity(0);
                 newDetail.setImportPrice(d.getImportPrice());
                 order.getImportDetails().add(newDetail);
             }
         }
+
         List<String> requestProductIds = request.getImportDetails()
                 .stream()
                 .map(ImportOrderDetailRequest::getProductId)
@@ -163,7 +166,7 @@ public class ImportOrderServiceImpl implements ImportOrderService {
         order.getImportDetails().removeIf(detail ->
                 !requestProductIds.contains(detail.getProduct().getId())
         );
-        // After updating, recalculate the total.
+
         for (ImportOrderDetail detail : order.getImportDetails()) {
             BigDecimal lineTotal = detail.getImportPrice().multiply(BigDecimal.valueOf(detail.getQuantity()));
             totalPrice = totalPrice.add(lineTotal);
@@ -177,7 +180,6 @@ public class ImportOrderServiceImpl implements ImportOrderService {
         return importOrderMapper.toResponse(saved);
     }
 
-
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
     public ImportOrderStatisticResponse getStatistics(LocalDate from, LocalDate to) {
         LocalDateTime fromDateTime = from.atStartOfDay();
@@ -185,9 +187,9 @@ public class ImportOrderServiceImpl implements ImportOrderService {
 
         Object[] result = (Object[]) importOrderRepository.getStatisticsBetween(fromDateTime, toDateTime);
 
-        long totalOrders = ((Number) result[0]).longValue();
-        long totalProducts = ((Number) result[1]).longValue();
-        BigDecimal totalAmount = (BigDecimal) result[2];
+        long totalOrders = result[0] != null ? ((Number) result[0]).longValue() : 0L;
+        long totalProducts = result[1] != null ? ((Number) result[1]).longValue() : 0L;
+        BigDecimal totalAmount = result[2] != null ? (BigDecimal) result[2] : BigDecimal.ZERO;
 
         return new ImportOrderStatisticResponse(totalOrders, totalProducts, totalAmount);
     }
@@ -195,67 +197,113 @@ public class ImportOrderServiceImpl implements ImportOrderService {
     @Transactional
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
     public ImportOrderResponse confirmAndFinalize(String orderId) {
-
         ImportOrder order = importOrderRepository.findByIdWithDetails(orderId)
                 .orElseThrow(() -> new AppException(ErrorCode.IMPORT_ORDER_NOT_FOUND));
 
-        // Không cho xử lý nếu đã hoàn tất
         if (order.getStatus() == ImportStatus.IMPORTED) {
-            throw new IllegalStateException("Order already fully imported.");
+            throw new IllegalStateException("Đơn nhập hàng này đã hoàn thành nhập kho.");
+        }
+        if (order.getStatus() == ImportStatus.CANCELLED) {
+            throw new IllegalStateException("Đơn nhập hàng này đã bị hủy, không thể nhập kho.");
         }
 
-        // 1️⃣ Set confirmStatus nếu chưa confirm
-        if (order.getConfirmStatus() == ConfirmStatus.UNCONFIRMED) {
-            order.setConfirmStatus(ConfirmStatus.CONFIRMED);
-        }
-
+        boolean isOverdue = order.isOverdue();
         int totalReceived = order.getTotalReceivedQuantity();
 
+        // Quy định: Nếu đơn hàng tính từ ngày đặt đến ngày nhận quá 3 ngày:
+        // - Nếu chưa nhận được gì (totalReceived == 0): Nhập là 0, coi như có đơn nhưng NCC không giao, vẫn cho xác nhận bình thường để chốt/đóng đơn.
         if (totalReceived == 0) {
-            throw new IllegalStateException("No quantity has been entered.");
+            if (!isOverdue) {
+                throw new IllegalStateException("Chưa có số lượng thực nhận nào được ghi nhận và đơn hàng chưa quá hạn 3 ngày.");
+            }
+            String overdueNote = "[Quá hạn " + order.getDaysSinceOrder() + " ngày - NCC không giao hàng]";
+            if (order.getNote() == null || order.getNote().isBlank()) {
+                order.setNote(overdueNote);
+            } else if (!order.getNote().contains("NCC không giao hàng")) {
+                order.setNote(order.getNote() + " " + overdueNote);
+            }
+            order.setConfirmStatus(ConfirmStatus.CONFIRMED);
+            order.setStatus(ImportStatus.IMPORTED);
+            order.setImportUpdateDate(LocalDateTime.now());
+            return importOrderMapper.toResponse(importOrderRepository.save(order));
         }
 
-        // 2️⃣ Cộng stock
+        // Cập nhật tồn kho và giá vốn bình quân gia quyền cho từng sản phẩm
         for (ImportOrderDetail detail : order.getImportDetails()) {
-
             int received = detail.getReceivedQuantity();
             int confirmed = detail.getConfirmedQuantity();
-
             int delta = received - confirmed;
 
             if (delta > 0) {
-
                 Product product = detail.getProduct();
-
-                int newStock = product.getStock() + delta;
+                int oldStock = product.getStock();
+                int newStock = oldStock + delta;
                 product.setStock(newStock);
 
+                // Tính giá vốn bình quân gia quyền (Moving Average Cost)
+                // ((Tồn cũ * Giá vốn cũ) + (Nhập mới * Giá nhập mới)) / Tổng tồn mới
+                BigDecimal oldCost = product.getCost() != null ? product.getCost() : BigDecimal.ZERO;
+                BigDecimal importPrice = detail.getImportPrice() != null ? detail.getImportPrice() : BigDecimal.ZERO;
 
+                if (newStock > 0) {
+                    BigDecimal oldTotalValue = oldCost.multiply(BigDecimal.valueOf(Math.max(0, oldStock)));
+                    BigDecimal newImportValue = importPrice.multiply(BigDecimal.valueOf(delta));
+                    BigDecimal newAverageCost = oldTotalValue.add(newImportValue)
+                            .divide(BigDecimal.valueOf(newStock), 2, RoundingMode.HALF_UP);
+                    product.setCost(newAverageCost);
+                } else {
+                    product.setCost(importPrice);
+                }
+
+                // Cập nhật trạng thái OUT_OF_STOCK -> ACTIVE khi có hàng
                 if (product.getStatus() != ProductStatus.DISCONTINUED
                         && newStock > 0
                         && product.getStatus() == ProductStatus.OUT_OF_STOCK) {
-
                     product.setStatus(ProductStatus.ACTIVE);
                 }
 
                 detail.setConfirmedQuantity(received);
+                productRepository.save(product);
             }
         }
 
-        // 3️⃣ Update ImportStatus
-        if (totalReceived >= order.getTotalQuantity()) {
+        order.setConfirmStatus(ConfirmStatus.CONFIRMED);
+
+        if (isOverdue && totalReceived < order.getTotalQuantity()) {
+            String overdueNote = "[Quá hạn " + order.getDaysSinceOrder() + " ngày - Chốt nhận một phần, phần thiếu NCC không giao]";
+            if (order.getNote() == null || order.getNote().isBlank()) {
+                order.setNote(overdueNote);
+            } else if (!order.getNote().contains("Quá hạn")) {
+                order.setNote(order.getNote() + " " + overdueNote);
+            }
+            order.setStatus(ImportStatus.IMPORTED);
+        } else if (totalReceived >= order.getTotalQuantity()) {
             order.setStatus(ImportStatus.IMPORTED);
         } else {
             order.setStatus(ImportStatus.PARTIALLY_IMPORTED);
         }
 
         order.setImportUpdateDate(LocalDateTime.now());
-
         return importOrderMapper.toResponse(importOrderRepository.save(order));
     }
 
+    @Transactional
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
+    public ImportOrderResponse cancelImportOrder(String orderId) {
+        ImportOrder order = importOrderRepository.findByIdWithDetails(orderId)
+                .orElseThrow(() -> new AppException(ErrorCode.IMPORT_ORDER_NOT_FOUND));
 
+        if (order.getStatus() == ImportStatus.IMPORTED) {
+            throw new IllegalStateException("Không thể hủy đơn hàng đã hoàn thành nhập kho.");
+        }
+        if (order.getStatus() == ImportStatus.PARTIALLY_IMPORTED) {
+            throw new IllegalStateException("Đơn hàng đã nhập kho một phần, không thể hủy hoàn toàn.");
+        }
 
+        order.setStatus(ImportStatus.CANCELLED);
+        order.setImportUpdateDate(LocalDateTime.now());
+        return importOrderMapper.toResponse(importOrderRepository.save(order));
+    }
 
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
     public Page<ImportOrderResponse> getImportOrders(
@@ -268,78 +316,31 @@ public class ImportOrderServiceImpl implements ImportOrderService {
             int size) {
 
         ImportStatus importStatus = null;
-        if (status != null && !status.isEmpty()) {
-            importStatus = ImportStatus.valueOf(status.toUpperCase());
+        if (status != null && !status.trim().isEmpty()) {
+            try {
+                importStatus = ImportStatus.fromString(status);
+            } catch (Exception ignored) {}
         }
 
-        LocalDateTime fromDateTime = null;
-        LocalDateTime toDateTime = null;
-
-        if (fromDate != null) {
-            fromDateTime = fromDate.atStartOfDay();
-        }
-
-        if (toDate != null) {
-            toDateTime = toDate.atTime(23, 59, 59);
-        }
+        LocalDateTime fromDateTime = fromDate != null ? fromDate.atStartOfDay() : null;
+        LocalDateTime toDateTime = toDate != null ? toDate.atTime(23, 59, 59) : null;
 
         Sort sort = Sort.by("importDate");
-        sort = "DESC".equalsIgnoreCase(sortByImportDate)
-                ? sort.descending()
-                : sort.ascending();
+        sort = "DESC".equalsIgnoreCase(sortByImportDate) ? sort.descending() : sort.ascending();
 
         Pageable pageable = PageRequest.of(page, size, sort);
 
-        Page<ImportOrder> ordersPage;
-
-        // filter: status + supplier + date
-        if (importStatus != null
-                && supplierName != null && !supplierName.isEmpty()
-                && fromDateTime != null && toDateTime != null) {
-
-            ordersPage = importOrderRepository
-                    .findByStatusAndSupplier_NameContainingIgnoreCaseAndImportDateBetween(
-                            importStatus, supplierName, fromDateTime, toDateTime, pageable);
-
-        }
-        // filter: date
-        else if (fromDateTime != null && toDateTime != null) {
-
-            ordersPage = importOrderRepository
-                    .findByImportDateBetween(fromDateTime, toDateTime, pageable);
-
-        }
-        // filter: status + supplier
-        else if (importStatus != null
-                && supplierName != null && !supplierName.isEmpty()) {
-
-            ordersPage = importOrderRepository
-                    .findByStatusAndSupplier_NameContainingIgnoreCase(
-                            importStatus, supplierName, pageable);
-
-        }
-        // filter: status
-        else if (importStatus != null) {
-
-            ordersPage = importOrderRepository
-                    .findByStatus(importStatus, pageable);
-
-        }
-        // filter: supplier
-        else if (supplierName != null && !supplierName.isEmpty()) {
-
-            ordersPage = importOrderRepository
-                    .findBySupplier_NameContainingIgnoreCase(supplierName, pageable);
-
-        }
-        // no filter
-        else {
-
-            ordersPage = importOrderRepository.findAll(pageable);
-        }
+        Page<ImportOrder> ordersPage = importOrderRepository.filterImportOrders(
+                importStatus,
+                supplierName != null && !supplierName.trim().isEmpty() ? supplierName.trim() : null,
+                fromDateTime,
+                toDateTime,
+                pageable
+        );
 
         return ordersPage.map(importOrderMapper::toResponse);
     }
+
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
     public ImportOrderResponse getById(String id) {
         ImportOrder order = importOrderRepository.findById(id)
@@ -353,12 +354,13 @@ public class ImportOrderServiceImpl implements ImportOrderService {
         ImportOrder order = importOrderRepository.findByIdWithDetails(orderId)
                 .orElseThrow(() -> new AppException(ErrorCode.IMPORT_ORDER_NOT_FOUND));
 
-        if (order.getStatus() == ImportStatus.IMPORTED) {
-            throw new IllegalStateException("Cannot delete imported orders");
+        if (order.getStatus() == ImportStatus.IMPORTED || order.getStatus() == ImportStatus.PARTIALLY_IMPORTED) {
+            throw new IllegalStateException("Không thể xóa đơn đã nhập kho.");
         }
 
         importOrderRepository.delete(order);
     }
+
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
     public Page<ImportOrderDetailResponse> getImportOrderDetails(
             String orderId,
@@ -366,7 +368,6 @@ public class ImportOrderServiceImpl implements ImportOrderService {
             int size) {
 
         Pageable pageable = PageRequest.of(page, size);
-
 
         if (!importOrderRepository.existsById(orderId)) {
             throw new AppException(ErrorCode.IMPORT_ORDER_NOT_FOUND);
@@ -390,7 +391,7 @@ public class ImportOrderServiceImpl implements ImportOrderService {
 
         return importOrderMapper.toDetailResponse(detail);
     }
-    //--------------
+
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
     public ByteArrayInputStream exportImportOrdersToExcel() {
         List<ImportOrder> orders = importOrderRepository.findAll();
@@ -398,24 +399,23 @@ public class ImportOrderServiceImpl implements ImportOrderService {
         try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             Sheet sheet = workbook.createSheet("Import Orders");
 
-            // Header
             Row header = sheet.createRow(0);
-            String[] columns = {"Order ID", "Supplier Name", "Import Date", "Status", "Total Amount"};
+            String[] columns = {"Mã phiếu", "Nhà cung cấp", "Ngày tạo", "Trạng thái", "Tổng số lượng", "Tổng tiền (VNĐ)"};
             for (int i = 0; i < columns.length; i++) {
                 Cell cell = header.createCell(i);
                 cell.setCellValue(columns[i]);
             }
 
-            // Data
             DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
             int rowIdx = 1;
             for (ImportOrder order : orders) {
                 Row row = sheet.createRow(rowIdx++);
                 row.createCell(0).setCellValue(order.getId());
-                row.createCell(1).setCellValue(order.getSupplier().getName());
-                row.createCell(2).setCellValue(order.getImportDate().format(formatter));
-                row.createCell(3).setCellValue(order.getStatus().name());
-                row.createCell(4).setCellValue(order.getTotalPrice().doubleValue());
+                row.createCell(1).setCellValue(order.getSupplier() != null ? order.getSupplier().getName() : "");
+                row.createCell(2).setCellValue(order.getImportDate() != null ? order.getImportDate().format(formatter) : "");
+                row.createCell(3).setCellValue(order.getStatus() != null ? order.getStatus().name() : "");
+                row.createCell(4).setCellValue(order.getTotalQuantity());
+                row.createCell(5).setCellValue(order.getTotalPrice() != null ? order.getTotalPrice().doubleValue() : 0.0);
             }
 
             workbook.write(out);
@@ -425,7 +425,6 @@ public class ImportOrderServiceImpl implements ImportOrderService {
         }
     }
 
-    // ImportOrderService
     @Transactional
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
     public ImportOrderResponse receiveImportOrderDetail(
@@ -437,9 +436,11 @@ public class ImportOrderServiceImpl implements ImportOrderService {
                 .orElseThrow(() -> new AppException(ErrorCode.IMPORT_ORDER_NOT_FOUND));
 
         if (order.getStatus() == ImportStatus.IMPORTED) {
-            throw new IllegalStateException("The order has been processed and received into the warehouse.");
+            throw new IllegalStateException("Đơn nhập hàng đã hoàn thành, không thể thay đổi số lượng thực nhận.");
         }
-
+        if (order.getStatus() == ImportStatus.CANCELLED) {
+            throw new IllegalStateException("Đơn nhập hàng đã bị hủy.");
+        }
 
         ImportOrderDetail detail = order.getImportDetails().stream()
                 .filter(d -> d.getId().equals(detailId))
@@ -447,18 +448,22 @@ public class ImportOrderServiceImpl implements ImportOrderService {
                 .orElseThrow(() -> new AppException(ErrorCode.IMPORT_ORDER_DETAIL_NOT_FOUND));
 
         if (receivedQuantity < 0) {
-            throw new IllegalArgumentException("The number received must not be negative.");
+            throw new IllegalArgumentException("Số lượng nhận không được là số âm.");
         }
         if (receivedQuantity > detail.getQuantity()) {
-            throw new IllegalArgumentException("The number received exceeded the number ordered.");
+            throw new IllegalArgumentException("Số lượng nhận vượt quá số lượng đặt hàng.");
         }
 
         detail.setReceivedQuantity(receivedQuantity);
 
+        // Chuyển trạng thái sang RECEIVING nếu đang là DRAFT
+        if (order.getStatus() == ImportStatus.DRAFT) {
+            order.setStatus(ImportStatus.RECEIVING);
+        }
+
+        order.setImportUpdateDate(LocalDateTime.now());
         ImportOrder saved = importOrderRepository.save(order);
 
         return importOrderMapper.toResponse(saved);
     }
-
-
 }

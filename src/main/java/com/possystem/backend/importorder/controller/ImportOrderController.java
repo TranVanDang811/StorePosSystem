@@ -34,7 +34,7 @@ public class ImportOrderController {
     // Create new receipt
     @Operation(summary = "Create new import order", description = "Create a new import order with detailed product items.")
     @PostMapping
-    ApiResponse<ImportOrderResponse> createImportOrder(@RequestBody ImportOrderCreateRequest request) {
+    ApiResponse<ImportOrderResponse> createImportOrder(@RequestBody @Valid ImportOrderCreateRequest request) {
         return ApiResponse.<ImportOrderResponse>builder()
                 .result(importOrderService.createImportOrder(request))
                 .build();
@@ -71,6 +71,17 @@ public class ImportOrderController {
                 .build();
     }
 
+    @Operation(summary = "Cancel import order", description = "Cancel an import order (only allowed if not fully imported).")
+    @PutMapping("/{id}/cancel")
+    public ApiResponse<ImportOrderResponse> cancelImportOrder(
+            @PathVariable String id) {
+
+        return ApiResponse.<ImportOrderResponse>builder()
+                .result(importOrderService.cancelImportOrder(id))
+                .message("Import order cancelled successfully")
+                .build();
+    }
+
 
     @Operation(summary = "Get list of import orders", description = "Retrieve paginated list of import orders with optional filters by supplier name, status, and date sorting.")
     @GetMapping
@@ -96,7 +107,7 @@ public class ImportOrderController {
                 supplierName,
                 fromDate,
                 toDate,
-                page - 1,
+                Math.max(0, page - 1),
                 size
         );
 
@@ -127,7 +138,7 @@ public class ImportOrderController {
                 .result(
                         importOrderService.getImportOrderDetails(
                                 orderId,
-                                page - 1,
+                                Math.max(0, page - 1),
                                 size
                         )
                 )

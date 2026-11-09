@@ -10,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
 import lombok.experimental.NonFinal;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
@@ -27,10 +28,12 @@ public class ApplicationInitConfig {
     PasswordEncoder passwordEncoder;
 
     @NonFinal
-    static final String ADMIN_USER_NAME = "admin";
+    @Value("${app.admin.username:admin}")
+    String adminUsername;
 
     @NonFinal
-    static final String ADMIN_PASSWORD = "admin";
+    @Value("${app.admin.password:admin}")
+    String adminPassword;
 
     @Bean
     @ConditionalOnProperty(
@@ -38,9 +41,11 @@ public class ApplicationInitConfig {
             value = "datasource.driverClassName",
             havingValue = "com.mysql.cj.jdbc.Driver")
     ApplicationRunner applicationRunner(UserRepository userRepository,
-                                        RoleRepository roleRepository) {
+                                        RoleRepository roleRepository,
+                                        org.springframework.transaction.PlatformTransactionManager transactionManager) {
         log.info("Initializing application.....");
-        return args -> {
+        var txTemplate = new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+        return args -> txTemplate.executeWithoutResult(txStatus -> {
 
             Role employeeRole = roleRepository.findByName(PredefinedRole.EMPLOYEE_ROLE)
                     .orElseGet(() -> roleRepository.save(Role.builder()
@@ -67,17 +72,29 @@ public class ApplicationInitConfig {
                             .build()));
 
 
-            if (userRepository.findByUsername(ADMIN_USER_NAME).isEmpty()) {
+            var adminOpt = userRepository.findByUsername(adminUsername);
+            if (adminOpt.isEmpty()) {
                 User user = User.builder()
-                        .username(ADMIN_USER_NAME)
-                        .password(passwordEncoder.encode(ADMIN_PASSWORD))
-                        .roles(Set.of(adminRole, employeeRole,customerRole,manageRole))
+                        .username(adminUsername)
+                        .password(passwordEncoder.encode(adminPassword))
+                        .roles(Set.of(adminRole))
                         .build();
                 userRepository.save(user);
-                log.warn("Admin user has been created with default password: admin, please change it");
+                log.info("Admin user '{}' has been created.", adminUsername);
+            } else {
+                User existingAdmin = adminOpt.get();
+                if (existingAdmin.getRoles() == null || !existingAdmin.getRoles().contains(adminRole)) {
+                    var roles = existingAdmin.getRoles() == null ? new java.util.HashSet<Role>() : new java.util.HashSet<>(existingAdmin.getRoles());
+                    roles.add(adminRole);
+                    existingAdmin.setRoles(roles);
+                    userRepository.save(existingAdmin);
+                    log.info("Admin user '{}' updated with ADMIN role.", adminUsername);
+                } else {
+                    log.info("Admin user '{}' already exists. Skipping initialization.", adminUsername);
+                }
             }
 
             log.info("Application initialization completed .....");
-        };
+        });
     }
 }

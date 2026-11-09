@@ -75,6 +75,9 @@ public enum ErrorCode {
     PRODUCT_CODE_EXISTED(5013,"Product code already exists",HttpStatus.BAD_REQUEST),
     SHIFT_ALREADY_OPENED(5014,"Shift already opened",HttpStatus.BAD_REQUEST),
     NO_OPENED_SHIFT(5015,"No shift opened",HttpStatus.BAD_REQUEST),
+    CATEGORY_HAS_PRODUCTS(5016, "Cannot delete category containing products", HttpStatus.BAD_REQUEST),
+    CATEGORY_NAME_ALREADY_EXISTS(5017, "Category name already exists", HttpStatus.BAD_REQUEST),
+    SUPPLIER_HAS_DEPENDENCIES(5018, "Cannot delete supplier containing products or import orders", HttpStatus.BAD_REQUEST),
     ;
     private final int code;
     private final String message;

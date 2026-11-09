@@ -7,5 +7,6 @@ import org.mapstruct.MappingTarget;
 
 @Mapper(componentModel = "spring")
 public interface CustomerProfileMapper {
+    CustomerProfile toCustomerProfile(CustomerProfileRequest dto);
     void updateCustomerProfileFromDto(CustomerProfileRequest dto, @MappingTarget CustomerProfile entity);
 }

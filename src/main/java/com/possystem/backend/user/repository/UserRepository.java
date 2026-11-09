@@ -1,20 +1,22 @@
 package com.possystem.backend.user.repository;
 
-
 import com.possystem.backend.common.enums.UserStatus;
 import com.possystem.backend.user.entity.User;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 @Repository
 public interface UserRepository extends JpaRepository<User, String> {
     Optional<User> findByUsername(String username);
+    boolean existsByUsername(String username);
     Page<User> findByUsernameContainingIgnoreCaseOrFullNameContainingIgnoreCase(
             String username,
             String fullName,
@@ -45,15 +47,48 @@ public interface UserRepository extends JpaRepository<User, String> {
     Page<User> findByRoles_Name(String roleName, Pageable pageable);
     Page<User> findByRoles_NameAndStatus(String roleName, UserStatus status, Pageable pageable);
     Page<User> findByStatus(UserStatus status, Pageable pageable);
-    Optional<User>findByEmail(String email);
+    Optional<User> findByEmail(String email);
     Optional<User> findByPhone(String phone);
+    @Query(value = "SELECT DISTINCT u FROM User u JOIN u.roles r WHERE r.name IN :roleNames", countQuery = "SELECT COUNT(DISTINCT u) FROM User u JOIN u.roles r WHERE r.name IN :roleNames")
+    Page<User> findByRoles_NameIn(@Param("roleNames") List<String> roleNames, Pageable pageable);
 
     @Query("""
-SELECT COUNT(u)
-FROM User u
-JOIN u.roles r
-WHERE r.name = 'CUSTOMER'
-AND u.createdAt BETWEEN :start AND :end
-""")
-    long countNewMembersToday(LocalDateTime start, LocalDateTime end);
+        SELECT COUNT(u)
+        FROM User u
+        JOIN u.roles r
+        WHERE r.name = 'CUSTOMER'
+          AND u.createdAt BETWEEN :start AND :end
+    """)
+    long countNewMembersToday(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+
+    @Query(value = """
+        SELECT DISTINCT u FROM User u
+        JOIN u.roles r
+        WHERE (:keyword IS NULL OR :keyword = ''
+               OR LOWER(u.username) LIKE LOWER(CONCAT('%', :keyword, '%'))
+               OR LOWER(u.fullName) LIKE LOWER(CONCAT('%', :keyword, '%'))
+               OR LOWER(u.phone) LIKE LOWER(CONCAT('%', :keyword, '%'))
+               OR LOWER(u.email) LIKE LOWER(CONCAT('%', :keyword, '%')))
+          AND (:roleName IS NULL OR :roleName = '' OR r.name = :roleName)
+          AND (:roleNames IS NULL OR r.name IN :roleNames)
+          AND (:status IS NULL OR u.status = :status)
+    """, countQuery = """
+        SELECT COUNT(DISTINCT u) FROM User u
+        JOIN u.roles r
+        WHERE (:keyword IS NULL OR :keyword = ''
+               OR LOWER(u.username) LIKE LOWER(CONCAT('%', :keyword, '%'))
+               OR LOWER(u.fullName) LIKE LOWER(CONCAT('%', :keyword, '%'))
+               OR LOWER(u.phone) LIKE LOWER(CONCAT('%', :keyword, '%'))
+               OR LOWER(u.email) LIKE LOWER(CONCAT('%', :keyword, '%')))
+          AND (:roleName IS NULL OR :roleName = '' OR r.name = :roleName)
+          AND (:roleNames IS NULL OR r.name IN :roleNames)
+          AND (:status IS NULL OR u.status = :status)
+    """)
+    Page<User> searchUsers(
+            @Param("keyword") String keyword,
+            @Param("roleName") String roleName,
+            @Param("roleNames") List<String> roleNames,
+            @Param("status") UserStatus status,
+            Pageable pageable
+    );
 }

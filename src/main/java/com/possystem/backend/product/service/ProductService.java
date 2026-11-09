@@ -12,11 +12,12 @@ import java.util.Map;
 
 public interface ProductService {
     ProductResponse create(ProductRequest request, MultipartFile file);
+    ProductResponse update(String productId, ProductRequest request, MultipartFile file);
     Page<ProductResponse> getProducts(int page, int size);
     Page<ProductResponse> filterProducts(ProductFilterRequest request);
     ProductResponse getProductCode(String productCode);
     void deleteProduct(String productId);
     Map<String, Object> getProductStatistics();
     ProductResponse changerStatus(String productId, ProductStatus status);
-    public List<ProductResponse> getProductsBySupplier(String supplierId);
+    List<ProductResponse> getProductsBySupplier(String supplierId);
 }

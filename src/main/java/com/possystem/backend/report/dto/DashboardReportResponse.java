@@ -28,4 +28,9 @@ public class DashboardReportResponse {
 
     List<RecentOrderDTO> recentOrders;
 
+    long outOfStockCount;
+    long lowStockCount;
+    long pendingImportCount;
+    long overdueImportCount;
+
 }

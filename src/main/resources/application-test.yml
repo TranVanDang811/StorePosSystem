@@ -2,11 +2,40 @@ spring:
   config:
     activate:
       on-profile: test
+  datasource:
+    # Dedicated test database to prevent accidentally dropping development data
+    url: ${DBMS_TEST_CONNECTION:jdbc:mysql://localhost:3306/backend_test?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Ho_Chi_Minh}
+    username: ${DBMS_USERNAME:root}
+    password: ${DBMS_PASSWORD:root}
+  jpa:
+    show-sql: false
+    hibernate:
+      ddl-auto: ${JPA_DDL_AUTO:create-drop}
+    properties:
+      hibernate:
+        format_sql: false
 
 open:
   api:
-    title: POS System API
+    title: POS System API (Test)
     version: v1.0.0
-    description: API documentation for POS System
+    description: API documentation for POS System Test Environment
     serverUrl: http://localhost:8080/backend
-    serverName: Server test
+    serverName: Test Server
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+logging:
+  level:
+    root: WARN
+    com.possystem.backend: WARN

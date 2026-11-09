@@ -1,5 +1,6 @@
 package com.possystem.backend.config;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
@@ -21,19 +22,26 @@ import java.util.Arrays;
 @EnableWebSecurity
 @EnableMethodSecurity
 public class SecurityConfig {
-    //Truy cập không cần security
-    private static final String[] PUBLIC_ENDPOINTS = {
-            "/users", "/auth/token", "/auth/introspect", "/auth/logout", "/auth/refresh","/users/forgot-password", "/users/reset-password"
+    // Truy cập không cần security
+    private static final String[] PUBLIC_POST_ENDPOINTS = {
+            "/auth/token", "/auth/introspect", "/auth/logout", "/auth/refresh"
     };
 
+    private static final String[] PUBLIC_GET_ENDPOINTS = {
+            "/actuator/health", "/actuator/info",
+            "/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html"
+    };
 
     private final CustomJwtDecoder customJwtDecoder;
     private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
     private final Environment env;
 
+    @Value("${app.cors.allowed-origins:http://localhost:5173,http://localhost:3000}")
+    private String allowedOrigins;
+
     public SecurityConfig(CustomJwtDecoder customJwtDecoder,
-                          JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint,
-                          Environment env) {
+            JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint,
+            Environment env) {
         this.customJwtDecoder = customJwtDecoder;
         this.jwtAuthenticationEntryPoint = jwtAuthenticationEntryPoint;
         this.env = env;
@@ -44,7 +52,16 @@ public class SecurityConfig {
         httpSecurity
                 .cors(cors -> cors.configurationSource(request -> {
                     CorsConfiguration corsConfig = new CorsConfiguration();
-                    corsConfig.addAllowedOrigin("http://localhost:5173");
+                    if (allowedOrigins != null && !allowedOrigins.isBlank()) {
+                        for (String origin : allowedOrigins.split(",")) {
+                            String trimmed = origin.trim();
+                            if (!trimmed.isEmpty()) {
+                                corsConfig.addAllowedOrigin(trimmed);
+                            }
+                        }
+                    } else {
+                        corsConfig.addAllowedOrigin("http://localhost:5173");
+                    }
                     corsConfig.addAllowedMethod("*");
                     corsConfig.addAllowedHeader("*");
                     corsConfig.setAllowCredentials(true);
@@ -54,38 +71,21 @@ public class SecurityConfig {
                 }))
                 .authorizeHttpRequests(request -> {
                     // Cho phép public endpoints
-                    request.requestMatchers(HttpMethod.POST, PUBLIC_ENDPOINTS).permitAll();
-
-                    // Swagger config theo profile
-                    if (Arrays.asList(env.getActiveProfiles()).contains("prod")) {
-                        // prod → chỉ ADMIN
-                        request.requestMatchers(
-                                "/swagger-ui/**",
-                                "/v3/api-docs/**",
-                                "/swagger-ui.html"
-                        ).hasRole("ADMIN");
-                    } else {
-                        // dev, test → mở thoải mái
-                        request.requestMatchers(
-                                "/swagger-ui/**",
-                                "/v3/api-docs/**",
-                                "/swagger-ui.html"
-                        ).permitAll();
-                    }
+                    request.requestMatchers(HttpMethod.POST, PUBLIC_POST_ENDPOINTS).permitAll();
+                    request.requestMatchers(HttpMethod.GET, PUBLIC_GET_ENDPOINTS).permitAll();
 
                     // Các API khác cần login
                     request.anyRequest().authenticated();
                 });
 
         httpSecurity.oauth2ResourceServer(oauth2 -> oauth2.jwt(jwtConfigurer -> jwtConfigurer
-                        .decoder(customJwtDecoder)
-                        .jwtAuthenticationConverter(jwtAuthenticationConverter()))
+                .decoder(customJwtDecoder)
+                .jwtAuthenticationConverter(jwtAuthenticationConverter()))
                 .authenticationEntryPoint(jwtAuthenticationEntryPoint));
 
         httpSecurity.csrf(AbstractHttpConfigurer::disable);
         return httpSecurity.build();
     }
-
 
     @Bean
     JwtAuthenticationConverter jwtAuthenticationConverter() {
