@@ -58,22 +58,33 @@ This backend powers real-time retail store transactions and administrative dashb
 <img width="1919" height="978" alt="Authentication" src="https://github.com/user-attachments/assets/f4b5c686-1491-4c6a-b0a1-44d6b71495d5" />
 
 ### 🛒 Cashier POS Interface
-<img width="1919" height="980" alt="POS Interface" src="https://github.com/user-attachments/assets/b7c93eb0-fc64-4717-973b-9055e4ea97f8" />
+<img width="1911" height="962" alt="Screenshot 2026-11-09 202454" src="https://github.com/user-attachments/assets/3b7ca8c3-9bd2-4c66-a6de-a4851c23d960" />
+
+---
 
 ### 💳 Checkout & Split Payment
-<img width="1919" height="980" alt="Payment Interface" src="https://github.com/user-attachments/assets/480ee0be-c750-456e-9529-a91c3ef78af6" />
+<img width="1912" height="964" alt="Screenshot 2026-11-09 202622" src="https://github.com/user-attachments/assets/f5db3742-5b8d-4b2b-b30c-0ab040cc28de" />
+
 
 ### 💵 End-of-Shift Settlement & Cash Counting
 <img width="1919" height="978" alt="Settlement Interface" src="https://github.com/user-attachments/assets/115bb1d8-31e1-417c-891c-95b1dc2588a1" />
 
 ### 📦 Product & Inventory Catalog Management
-<img width="1919" height="980" alt="Product Management" src="https://github.com/user-attachments/assets/9eb76726-2c32-4fdc-97d2-083ef5d8c84e" />
+<img width="1915" height="965" alt="Screenshot 2026-11-09 202332" src="https://github.com/user-attachments/assets/76cac100-8de3-4283-a9f8-1c9c8976413c" />
+
 
 ### 📊 Business Intelligence & Reporting Dashboard
-<img width="1896" height="978" alt="Reports Dashboard" src="https://github.com/user-attachments/assets/d2845843-ae17-49ff-8483-accb681fd418" />
+<img width="1915" height="962" alt="Screenshot 2026-11-09 202247" src="https://github.com/user-attachments/assets/817ea73c-e8d8-4f93-a015-7e45df4ccdf9" />
 
 ### 📥 Supplier Import Orders & Stock Receiving
-<img width="1919" height="978" alt="Import Product" src="https://github.com/user-attachments/assets/7b35ea8b-ee71-4f45-9cd4-0ecd838837c7" />
+<img width="1915" height="962" alt="Screenshot 2026-11-09 203659" src="https://github.com/user-attachments/assets/38e0b51d-1fdb-4272-a9a2-d2144ffbb83f" />
+
+### Product Sales Report
+<img width="1913" height="963" alt="Screenshot 2026-11-09 202432" src="https://github.com/user-attachments/assets/7eac0b84-b776-4070-ad19-2a42ee7dd2cd" />
+
+### Create a new user
+<img width="1915" height="963" alt="Screenshot 2026-11-09 202412" src="https://github.com/user-attachments/assets/e4be3e57-22f6-4bc5-a25a-c72c90606b4d" />
+
 
 ---
 
