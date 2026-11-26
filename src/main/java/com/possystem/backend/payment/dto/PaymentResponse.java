@@ -38,4 +38,5 @@ public class PaymentResponse {
 
     BigDecimal cashReceived;
     BigDecimal changeAmount;
+    String idempotencyKey;
 }

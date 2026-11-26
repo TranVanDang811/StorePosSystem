@@ -16,6 +16,8 @@ import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
@@ -33,6 +35,7 @@ public class OrderController {
     //Create order
     @Operation(summary = "Create a new order", description = "Create a new customer order with products and quantities.")
     @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
     ApiResponse<OrderResponse> createOrder(@RequestBody @Valid OrderRequest request) {
         return ApiResponse.<OrderResponse>builder()
                 .result(orderService.createOrder(request))
@@ -42,6 +45,7 @@ public class OrderController {
     //Order List
     @Operation(summary = "Get all orders", description = "Retrieve a paginated list of all orders in the system.")
     @GetMapping
+    @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
     ApiResponse<Page<OrderResponse>> getAllOrders(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size,
@@ -56,6 +60,7 @@ public class OrderController {
 
     @Operation(summary = "Get order summary stats", description = "Retrieve aggregate statistics for orders matching filters.")
     @GetMapping("/summary")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
     public ApiResponse<OrderSummaryResponse> getOrderSummary(
             @RequestParam(required = false) String fromDate,
             @RequestParam(required = false) String toDate,
@@ -69,6 +74,7 @@ public class OrderController {
     //List of orders by id
     @Operation(summary = "Get order by ID", description = "Retrieve detailed information about a specific order by its ID.")
     @GetMapping("/{orderId}")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
     public ApiResponse<OrderResponse> getOrderById(@PathVariable String orderId) {
         return ApiResponse.<OrderResponse>builder()
                 .result(orderService.getOrderById(orderId))
@@ -78,6 +84,7 @@ public class OrderController {
     @Operation(summary = "Delete order", description = "Delete an order by its ID.")
     //Delete order
     @DeleteMapping("/{orderId}")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
     public ApiResponse<Void> deleteOrder(@PathVariable String orderId) {
         orderService.deleteOrder(orderId);
         return ApiResponse.<Void>builder().message("Delete successfully").build();
@@ -86,18 +93,18 @@ public class OrderController {
     @Operation(summary = "Filter orders", description = "Filter orders by date range and optionally by status.")
     //List of orders by start end date and status
     @GetMapping("/filter")
-    public List<OrderResponse> filterByDateRange(  @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime start,
+    public ApiResponse<List<OrderResponse>> filterByDateRange(  @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime start,
                                                    @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime end,
                                                    @RequestParam(value = "status", required = false) OrderStatus status) {
-        return orderService.getOrdersByDateRange(start, end,status);
+        return ApiResponse.<List<OrderResponse>>builder().result(orderService.getOrdersByDateRange(start, end, status)).build();
     }
 
     @Operation(summary = "Revenue statistics", description = "Get total revenue and order count between two dates.")
     //Revenue
     @GetMapping("/revenue")
-    public RevenueStatsResponse revenueStats(@RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime start,
+    public ApiResponse<RevenueStatsResponse> revenueStats(@RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime start,
                                              @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime end) {
-        return orderService.getRevenueStats(start, end);
+        return ApiResponse.<RevenueStatsResponse>builder().result(orderService.getRevenueStats(start, end)).build();
     }
 
     @PutMapping("/{id}/hold")
@@ -107,6 +114,17 @@ public class OrderController {
 
         return ApiResponse.<String>builder()
                 .result("Order has been put on HOLD")
+                .build();
+    }
+
+    @Operation(summary = "Cancel an unpaid order", description = "Cancel a PENDING or HOLD order and emit OrderCancelled domain event.")
+    @PutMapping("/{id}/cancel")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE') or hasRole('EMPLOYEE')")
+    public ApiResponse<OrderResponse> cancelOrder(
+            @PathVariable String id,
+            @RequestParam(required = false, defaultValue = "CASHIER_CANCELLED") String reason) {
+        return ApiResponse.<OrderResponse>builder()
+                .result(orderService.cancelOrder(id, reason))
                 .build();
     }
 

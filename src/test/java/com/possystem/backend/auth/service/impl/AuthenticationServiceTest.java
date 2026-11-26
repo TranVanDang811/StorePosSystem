@@ -36,6 +36,9 @@ class AuthenticationServiceTest {
     @Mock
     private InvalidatedTokenRepository invalidatedTokenRepository;
 
+    @org.mockito.Spy
+    private org.springframework.security.crypto.password.PasswordEncoder passwordEncoder = new BCryptPasswordEncoder(10);
+
     @InjectMocks
     private AuthenticationServiceImpl authenticationService;
 
@@ -57,6 +60,7 @@ class AuthenticationServiceTest {
                 .password(encodedPassword)
                 .fullName("Nguyen Van A")
                 .roles(Set.of(role))
+                .status(com.possystem.backend.common.enums.UserStatus.ACTIVE)
                 .build();
     }
 
@@ -158,6 +162,21 @@ class AuthenticationServiceTest {
 
         assertDoesNotThrow(() -> authenticationService.logout(logoutRequest));
         verify(invalidatedTokenRepository, atLeastOnce()).save(any(InvalidatedToken.class));
+    }
+
+    @Test
+    @DisplayName("Security Test: Tài khoản bị vô hiệu hóa (INACTIVE) bị từ chối đăng nhập")
+    void authenticate_DeactivatedUser_ThrowsException() {
+        testUser.setStatus(com.possystem.backend.common.enums.UserStatus.INACTIVE);
+        when(userRepository.findByUsername("cashier01")).thenReturn(Optional.of(testUser));
+
+        AuthenticationRequest request = AuthenticationRequest.builder()
+                .username("cashier01")
+                .password(rawPassword)
+                .build();
+
+        AppException ex = assertThrows(AppException.class, () -> authenticationService.authenticate(request));
+        assertEquals(ErrorCode.UNAUTHENTICATED, ex.getErrorCode());
     }
 }
 

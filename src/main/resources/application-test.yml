@@ -2,6 +2,10 @@ spring:
   config:
     activate:
       on-profile: test
+  ai:
+    openai:
+      api-key: test-mock-key
+      base-url: http://localhost:8080/mock-ai
   datasource:
     # Dedicated test database to prevent accidentally dropping development data
     url: ${DBMS_TEST_CONNECTION:jdbc:mysql://localhost:3306/backend_test?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Ho_Chi_Minh}

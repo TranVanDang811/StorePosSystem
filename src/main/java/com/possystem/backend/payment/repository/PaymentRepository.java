@@ -18,6 +18,9 @@ import java.util.List;
 public interface PaymentRepository extends JpaRepository<Payment, String> {
     Payment findByOrder_Id(String orderId);
 
+    java.util.Optional<Payment> findByIdempotencyKey(String idempotencyKey);
+    boolean existsByIdempotencyKey(String idempotencyKey);
+
     List<Payment> findByPaymentDateBetween(LocalDateTime start, LocalDateTime end);
 
     @Query("""
@@ -27,6 +30,32 @@ WHERE p.status = 'SUCCESS'
 AND p.paymentDate BETWEEN :start AND :end
 """)
     BigDecimal getRevenueBetween(LocalDateTime start, LocalDateTime end);
+
+    @Query("""
+SELECT FUNCTION('DATE', p.paymentDate), COALESCE(SUM(p.amount), 0)
+FROM Payment p
+WHERE p.status = 'SUCCESS'
+AND p.paymentDate >= :start AND p.paymentDate < :end
+GROUP BY FUNCTION('DATE', p.paymentDate)
+""")
+    List<Object[]> getDailyRevenueBetween(@Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+
+    @Query("""
+SELECT COALESCE(SUM(p.amount),0)
+FROM Payment p
+WHERE p.status = 'REFUNDED'
+AND p.paymentDate BETWEEN :start AND :end
+""")
+    BigDecimal getTotalRefundBetween(LocalDateTime start, LocalDateTime end);
+
+    @Query("""
+SELECT p.method, COALESCE(SUM(p.amount), 0)
+FROM Payment p
+WHERE p.status = 'SUCCESS'
+AND p.paymentDate BETWEEN :start AND :end
+GROUP BY p.method
+""")
+    List<Object[]> getRevenueByMethodBetween(LocalDateTime start, LocalDateTime end);
 
     @Query("""
 SELECT COUNT(DISTINCT p.user.id)

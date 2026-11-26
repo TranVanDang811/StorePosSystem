@@ -18,7 +18,10 @@ import java.util.Set;
 @AllArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE)
 @Entity
-@Table(name = "user")
+@Table(name = "user", indexes = {
+        @Index(name = "idx_user_phone", columnList = "phone"),
+        @Index(name = "idx_user_username", columnList = "username")
+})
 public class User extends AbstractEntity {
 
     @Column(name = "username", unique = true, columnDefinition = "VARCHAR(255) COLLATE utf8mb4_unicode_ci")
@@ -28,6 +31,9 @@ public class User extends AbstractEntity {
     String fullName;
     String email;
     String phone;
+
+    @Column(name = "password_changed_at")
+    java.time.LocalDateTime passwordChangedAt;
 
     @ManyToMany
     @JoinTable(

@@ -1,5 +1,7 @@
 package com.possystem.backend.report.controller;
 
+import com.possystem.backend.common.cache.CacheMetricsService;
+import com.possystem.backend.common.cache.RedisCircuitBreaker;
 import com.possystem.backend.common.response.ApiResponse;
 import com.possystem.backend.report.dto.DailyReportResponse;
 import com.possystem.backend.report.dto.DashboardReportResponse;
@@ -12,7 +14,9 @@ import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -22,6 +26,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @RestController
@@ -29,8 +34,11 @@ import java.util.List;
 @RequiredArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 @Tag(name = "Report Management", description = "APIs for generating daily and monthly sales reports")
+@PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
 public class ReportController {
     ReportService reportService;
+    ObjectProvider<CacheMetricsService> cacheMetricsServiceProvider;
+    ObjectProvider<RedisCircuitBreaker> circuitBreakerProvider;
 
     @GetMapping("/products")
     public ApiResponse<List<ProductSalesReportResponse>> getProductReport(
@@ -89,5 +97,16 @@ public class ReportController {
         return ApiResponse.<DashboardReportResponse>builder()
                 .result(reportService.getDashboardReport())
                 .build();
+    }
+
+    @GetMapping("/cache-metrics")
+    @Operation(summary = "Redis cache metrics", description = "Inspect Redis cache hit rates, misses, fallbacks, and circuit breaker state")
+    public ApiResponse<Map<String, Object>> getCacheMetrics() {
+        CacheMetricsService metrics = cacheMetricsServiceProvider.getIfAvailable();
+        RedisCircuitBreaker cb = circuitBreakerProvider.getIfAvailable();
+        if (metrics == null) {
+            return ApiResponse.success(Map.of("status", "CACHE_METRICS_UNAVAILABLE"));
+        }
+        return ApiResponse.success(metrics.snapshot(cb));
     }
 }

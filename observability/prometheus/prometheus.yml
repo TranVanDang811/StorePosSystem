@@ -1,0 +1,33 @@
+global:
+  scrape_interval: 10s
+  evaluation_interval: 10s
+  external_labels:
+    service: pos-system
+    env: local
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'pos-backend'
+    metrics_path: '/backend/actuator/prometheus'
+    scrape_interval: 5s
+    static_configs:
+      # host.docker.internal targets locally-run Maven/IDE backend;
+      # when running backend inside compose profile "app", override or add backend:8080.
+      - targets: ['host.docker.internal:8080', 'backend:8080']
+        labels:
+          application: 'pos-system'
+    metric_relabel_configs:
+      # Extra safety defense: drop any accidentally captured PII-looking label if ever added
+      - regex: '(phone|mobile|email|password|token|jwt|secret|cash_received)'
+        action: labeldrop
+
+  - job_name: 'otel-collector'
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['otel-collector:8889']

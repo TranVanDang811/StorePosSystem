@@ -32,7 +32,7 @@ public class ApplicationInitConfig {
     String adminUsername;
 
     @NonFinal
-    @Value("${app.admin.password:admin}")
+    @Value("${app.admin.password:}")
     String adminPassword;
 
     @Bean
@@ -74,10 +74,16 @@ public class ApplicationInitConfig {
 
             var adminOpt = userRepository.findByUsername(adminUsername);
             if (adminOpt.isEmpty()) {
+                String effectivePassword = adminPassword;
+                if (effectivePassword == null || effectivePassword.isBlank()) {
+                    effectivePassword = "Admin@" + java.util.UUID.randomUUID().toString().substring(0, 8);
+                    log.warn("⚠️ BẢO MẬT: Mật khẩu Admin chưa được thiết lập trong biến môi trường app.admin.password! Đã khởi tạo mật khẩu ngẫu nhiên: {}", effectivePassword);
+                }
                 User user = User.builder()
                         .username(adminUsername)
-                        .password(passwordEncoder.encode(adminPassword))
+                        .password(passwordEncoder.encode(effectivePassword))
                         .roles(Set.of(adminRole))
+                        .status(com.possystem.backend.common.enums.UserStatus.ACTIVE)
                         .build();
                 userRepository.save(user);
                 log.info("Admin user '{}' has been created.", adminUsername);

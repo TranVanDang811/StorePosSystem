@@ -30,10 +30,30 @@ public class Discount {
 
     LocalDateTime endDate;
 
+    @Column(name = "usage_limit", nullable = false)
+    int usageLimit = 0; // 0 = không giới hạn
+
+    @Column(name = "used_count", nullable = false)
+    int usedCount = 0;
+
     public boolean isCurrentlyValid() {
         LocalDateTime now = LocalDateTime.now();
         return (now.isAfter(startDate) || now.isEqual(startDate))
                 && (now.isBefore(endDate) || now.isEqual(endDate))
-                && active;
+                && active
+                && !hasReachedUsageLimit();
+    }
+
+    public boolean hasReachedUsageLimit() {
+        return usageLimit > 0 && usedCount >= usageLimit;
+    }
+
+    public void incrementUsedCount() {
+        if (hasReachedUsageLimit()) {
+            throw new com.possystem.backend.common.exception.AppException(
+                    com.possystem.backend.common.exception.ErrorCode.COUPON_INVALID,
+                    "Mã giảm giá đã đạt giới hạn số lượt sử dụng tối đa");
+        }
+        this.usedCount++;
     }
 }

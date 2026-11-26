@@ -1,0 +1,301 @@
+{
+  "executedAt": "2026-11-25T08:38:11.346Z",
+  "k6Summary": {
+    "group_duration": {
+      "max": 2334.70553,
+      "p(90)": 681.7337195,
+      "p(95)": 1141.2627099999993,
+      "p(99)": 1806.83338565,
+      "avg": 377.70335330449444,
+      "min": 33.012998,
+      "med": 296.15859750000004
+    },
+    "pos_k6_orders_created_ok": {
+      "count": 155,
+      "rate": 5.112663704498848
+    },
+    "http_req_connecting": {
+      "p(95)": 0,
+      "p(99)": 5.330636950000085,
+      "avg": 0.3695375147900763,
+      "min": 0,
+      "med": 0,
+      "max": 149.469513,
+      "p(90)": 0
+    },
+    "pos_listing_latency_ms": {
+      "p(90)": 282.55381560000006,
+      "p(95)": 320.21740829999993,
+      "p(99)": 462.2051469199998,
+      "avg": 147.87353014285705,
+      "min": 16.269082,
+      "med": 127.040363,
+      "max": 567.42287,
+      "thresholds": {
+        "p(95)<250": true
+      }
+    },
+    "http_reqs": {
+      "count": 2096,
+      "rate": 69.13640725567475
+    },
+    "pos_k6_payments_completed_ok": {
+      "count": 155,
+      "rate": 5.112663704498848
+    },
+    "http_req_sending": {
+      "avg": 0.05346914122137379,
+      "min": 0.003564,
+      "med": 0.016214,
+      "max": 13.07932,
+      "p(90)": 0.039615,
+      "p(95)": 0.0698445,
+      "p(99)": 0.7978726500000063
+    },
+    "ws_sessions": {
+      "count": 90,
+      "rate": 2.968643441321912
+    },
+    "data_sent": {
+      "count": 1282048,
+      "rate": 42288.25985177638
+    },
+    "http_req_failed": {
+      "passes": 0,
+      "fails": 2096,
+      "thresholds": {
+        "rate<0.02": false
+      },
+      "value": 0
+    },
+    "http_req_blocked": {
+      "med": 0.0048305,
+      "max": 149.520892,
+      "p(90)": 0.0072295,
+      "p(95)": 0.0157525,
+      "p(99)": 5.410376650000086,
+      "avg": 0.38196643845419753,
+      "min": 0.000973
+    },
+    "http_req_duration{expected_response:true}": {
+      "med": 142.40866749999998,
+      "max": 1590.692494,
+      "p(90)": 342.318204,
+      "p(95)": 504.28033125,
+      "p(99)": 875.9239708500016,
+      "avg": 182.91054390219438,
+      "min": 16.269082
+    },
+    "http_req_tls_handshaking": {
+      "med": 0,
+      "max": 0,
+      "p(90)": 0,
+      "p(95)": 0,
+      "p(99)": 0,
+      "avg": 0,
+      "min": 0
+    },
+    "iterations": {
+      "count": 1262,
+      "rate": 41.626978032758366
+    },
+    "http_req_waiting": {
+      "avg": 180.5623913325381,
+      "min": 15.559945,
+      "med": 139.45669550000002,
+      "max": 1590.65098,
+      "p(90)": 338.0990205,
+      "p(95)": 501.48413999999997,
+      "p(99)": 875.8793688500016
+    },
+    "pos_order_create_latency_ms": {
+      "avg": 306.1104245612904,
+      "min": 27.724902,
+      "med": 229.207214,
+      "max": 1143.706198,
+      "p(90)": 630.8251137999999,
+      "p(95)": 771.6768409999994,
+      "p(99)": 1113.7861134800003,
+      "thresholds": {
+        "p(95)<500": true
+      }
+    },
+    "pos_search_latency_ms": {
+      "min": 16.303011,
+      "med": 132.125984,
+      "max": 563.869927,
+      "p(90)": 281.81294980000007,
+      "p(95)": 325.05799179999997,
+      "p(99)": 479.5897270999999,
+      "avg": 148.74093311292532,
+      "thresholds": {
+        "p(95)<250": true
+      }
+    },
+    "ws_msgs_sent": {
+      "rate": 5.937286882643824,
+      "count": 180
+    },
+    "pos_dashboard_latency_ms": {
+      "min": 20.449912,
+      "med": 157.782107,
+      "max": 612.761878,
+      "p(90)": 312.37567320000005,
+      "p(95)": 365.47347584999994,
+      "p(99)": 474.85094201999976,
+      "avg": 174.22898155319152,
+      "thresholds": {
+        "p(95)<300": true
+      }
+    },
+    "http_req_receiving": {
+      "p(90)": 4.051585,
+      "p(95)": 13.18853125,
+      "p(99)": 32.35586220000005,
+      "avg": 2.294683428435116,
+      "min": 0.011976,
+      "med": 0.132388,
+      "max": 114.311534
+    },
+    "ws_session_duration": {
+      "avg": 58.0970985,
+      "min": 5.584775,
+      "med": 33.8460455,
+      "max": 274.68939,
+      "p(90)": 119.90081890000003,
+      "p(95)": 160.61029499999998,
+      "p(99)": 274.63310462
+    },
+    "vus_max": {
+      "max": 32,
+      "value": 32,
+      "min": 32
+    },
+    "pos_payment_latency_ms": {
+      "avg": 411.9500223290324,
+      "min": 55.489846,
+      "med": 314.774778,
+      "max": 1590.692494,
+      "p(90)": 880.5824471999999,
+      "p(95)": 926.1073577999999,
+      "p(99)": 1337.519915560002,
+      "thresholds": {
+        "p(95)<700": true
+      }
+    },
+    "http_req_duration": {
+      "p(99)": 875.9239708500016,
+      "avg": 182.91054390219438,
+      "min": 16.269082,
+      "med": 142.40866749999998,
+      "max": 1590.692494,
+      "p(90)": 342.318204,
+      "p(95)": 504.28033125,
+      "thresholds": {
+        "p(95)<500": true,
+        "p(99)<1200": false
+      }
+    },
+    "iteration_duration": {
+      "p(95)": 1106.9006882000003,
+      "p(99)": 1724.2481799600048,
+      "avg": 515.3355258787632,
+      "min": 183.958339,
+      "med": 449.1227545,
+      "max": 2538.507247,
+      "p(90)": 731.6453220000002
+    },
+    "ws_connecting": {
+      "avg": 43.510105111111116,
+      "min": 4.191264,
+      "med": 21.661624500000002,
+      "max": 240.121964,
+      "p(90)": 97.20601970000001,
+      "p(95)": 125.38108189999996,
+      "p(99)": 235.35051736
+    },
+    "checks": {
+      "passes": 2375,
+      "fails": 0,
+      "value": 1
+    },
+    "pos_k6_idempotent_replays_ok": {
+      "count": 33,
+      "rate": 1.0885025951513678
+    },
+    "data_received": {
+      "count": 8404272,
+      "rate": 277214.2994653932
+    },
+    "pos_k6_trace_header_rate": {
+      "fails": 0,
+      "passes": 2062,
+      "thresholds": {
+        "rate>0.99": false
+      },
+      "value": 1
+    },
+    "ws_msgs_received": {
+      "rate": 2.968643441321912,
+      "count": 90
+    },
+    "pos_k6_ws_connect_ok": {
+      "count": 90,
+      "rate": 2.968643441321912
+    },
+    "vus": {
+      "value": 12,
+      "min": 9,
+      "max": 31
+    },
+    "pos_ws_connect_latency_ms": {
+      "p(95)": 125.89999999999995,
+      "p(99)": 235.55,
+      "avg": 43.74444444444445,
+      "min": 4,
+      "med": 22,
+      "max": 240,
+      "p(90)": 98
+    }
+  },
+  "resourceUsageDuringLoad": {
+    "sampleCount": 15,
+    "peakProcessCpuPercent": 23.35,
+    "avgProcessCpuPercent": 19.47,
+    "peakSystemCpuPercent": 100,
+    "avgSystemCpuPercent": 99.08,
+    "peakHeapMb": 297.85,
+    "avgHeapMb": 187.9,
+    "peakNonHeapMb": 161.97,
+    "peakHikariActive": 10,
+    "peakHikariPending": 15
+  },
+  "prometheusDeltas": {
+    "cacheHitsDelta": 1241,
+    "cacheMissesDelta": 511,
+    "cacheHitRatePercent": 67.71052129081535,
+    "ordersPlacedDelta": 155,
+    "paymentsCompletedDelta": 155,
+    "inventoryAdjustmentsDelta": 155,
+    "gcPauseSecondsSum": 0.258,
+    "gcPauseCount": 25,
+    "outboxDrainWaitSeconds": 46.57
+  },
+  "dataConsistencyAudit": {
+    "stockBefore": 50000,
+    "stockAfter": 49690,
+    "stockDelta": 310,
+    "unitsSoldDelta": 310,
+    "stockMatchesUnitsSold": true,
+    "negativeStockProducts": 0,
+    "paidOrdersDelta": 155,
+    "paymentsDelta": 155,
+    "paidOrdersMatchPayments": true,
+    "orphanPaidOrders": 0,
+    "duplicatePaymentsPerOrder": 0,
+    "outboxPending": 1015,
+    "outboxFailed": 0,
+    "outboxDeadLetter": 0,
+    "outboxProcessedDelta": 425
+  }
+}

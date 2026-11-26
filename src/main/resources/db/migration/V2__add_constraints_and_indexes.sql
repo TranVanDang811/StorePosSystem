@@ -48,3 +48,6 @@ CREATE INDEX idx_invalidated_token_expiry ON invalidated_token (expiry_time);
 CREATE INDEX idx_import_order_date_status ON import_order (import_date, status);
 CREATE INDEX idx_import_order_supplier ON import_order (supplier_id);
 
+-- Bảng user
+CREATE INDEX idx_user_phone ON user (phone);
+

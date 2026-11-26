@@ -4,17 +4,30 @@ import com.possystem.backend.common.enums.ProductStatus;
 import com.possystem.backend.product.entity.Product;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import jakarta.persistence.LockModeType;
 
 import java.math.BigDecimal;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
 @Repository
 public interface ProductRepository extends JpaRepository<Product, String> {
+
+  @Lock(LockModeType.PESSIMISTIC_WRITE)
+  @Query("SELECT p FROM Product p WHERE p.id = :id")
+  Optional<Product> findByIdWithLock(@Param("id") String id);
+
+  @Lock(LockModeType.PESSIMISTIC_WRITE)
+  @Query("SELECT p FROM Product p WHERE p.id IN :ids")
+  List<Product> findAllByIdWithLock(@Param("ids") Collection<String> ids);
+
   Optional<Product> findByProductCode(String productCode);
 
   Optional<Product> findByProductCodeIgnoreCase(String productCode);
@@ -53,6 +66,7 @@ public interface ProductRepository extends JpaRepository<Product, String> {
       """)
   long countLowStock(@Param("threshold") int threshold);
 
+  @EntityGraph(attributePaths = {"category", "supplier"})
   @Query("""
           SELECT p FROM Product p
           WHERE (:keyword IS NULL OR :keyword = ''

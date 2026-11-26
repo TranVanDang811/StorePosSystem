@@ -28,10 +28,13 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,mappings
+        include: health,info,metrics,prometheus,mappings,caches
   endpoint:
     health:
       show-details: always
+  health:
+    redis:
+      enabled: true
 
 logging:
   level:

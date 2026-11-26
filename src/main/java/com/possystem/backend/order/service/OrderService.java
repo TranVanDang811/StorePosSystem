@@ -15,6 +15,7 @@ public interface OrderService {
     Page<OrderResponse> getAllOrders(int page, int size);
     OrderResponse getOrderById(String orderId);
     void deleteOrder(String orderId);
+    OrderResponse cancelOrder(String orderId, String reason);
     List<OrderResponse> getOrdersByDateRange(LocalDateTime start, LocalDateTime end , OrderStatus status);
     RevenueStatsResponse getRevenueStats(LocalDateTime start, LocalDateTime end);
     void holdOrder(String orderId);

@@ -17,6 +17,7 @@ import lombok.experimental.FieldDefaults;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -30,10 +31,10 @@ import java.util.List;
 @Tag(name = "Payment Management", description = "Endpoints for handling payments, refunds, and invoices")
 public class PaymentController {
         PaymentService paymentService;
-        OrderService orderService;
 
         @Operation(summary = "Create a new payment", description = "Create a payment record for a specific order.")
         @PostMapping
+        @ResponseStatus(HttpStatus.CREATED)
         public ApiResponse<PaymentResponse> createPayment(@RequestBody @Valid PaymentRequest request) {
                 return ApiResponse.<PaymentResponse>builder()
                                 .result(paymentService.createPayment(request))

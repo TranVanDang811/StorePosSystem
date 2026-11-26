@@ -3,7 +3,7 @@ spring:
     activate:
       on-profile: test
   datasource:
-    url: jdbc:h2:mem:pos_test_db;MODE=MySQL;NON_KEYWORDS=USER;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE
+    url: jdbc:h2:mem:pos_test_db;MODE=MySQL;NON_KEYWORDS=USER,VALUE;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE
     driverClassName: org.h2.Driver
     username: sa
     password: ""
@@ -14,8 +14,49 @@ spring:
     show-sql: false
   flyway:
     enabled: false
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 500ms
+      connect-timeout: 300ms
+      lettuce:
+        shutdown-timeout: 50ms
+
+app:
+  cache:
+    enabled: ${CACHE_ENABLED:true}
+    circuit-breaker-cooldown-ms: 5000
+  rate-limit:
+    enabled: ${RATE_LIMIT_ENABLED:true}
+    redis-enabled: ${RATE_LIMIT_REDIS_ENABLED:true}
+  outbox:
+    enabled: true
+    worker-enabled: false
+    base-backoff-ms: 50
+    max-backoff-ms: 500
+    lease-timeout-seconds: 5
 
 jwt:
   signerKey: "test-secret-key-must-be-at-least-32-bytes-long-for-hmac-sha256-pos-system"
   valid-duration: 3600
   refreshable-duration: 86400
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,caches
+  tracing:
+    sampling:
+      probability: 1.0
+  otlp:
+    tracing:
+      export:
+        enabled: false
+    metrics:
+      export:
+        enabled: false
+    logging:
+      export:
+        enabled: false

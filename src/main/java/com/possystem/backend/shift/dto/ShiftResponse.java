@@ -30,6 +30,8 @@ public class ShiftResponse {
 
     BigDecimal difference;
 
+    String terminalId;
+
     ShiftStatus status;
 
 }

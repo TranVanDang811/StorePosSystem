@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS role (
     description VARCHAR(255) NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE IF NOT EXISTS users (
+CREATE TABLE IF NOT EXISTS user (
     id VARCHAR(36) NOT NULL PRIMARY KEY,
     created_at DATETIME(6) NULL,
     updated_at DATETIME(6) NULL,
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS user_role (
     user_id VARCHAR(36) NOT NULL,
     role_id VARCHAR(50) NOT NULL,
     PRIMARY KEY (user_id, role_id),
-    CONSTRAINT fk_user_role_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    CONSTRAINT fk_user_role_user FOREIGN KEY (user_id) REFERENCES user (id) ON DELETE CASCADE,
     CONSTRAINT fk_user_role_role FOREIGN KEY (role_id) REFERENCES role (name) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS customer_profile (
     loyalty_points INT NOT NULL DEFAULT 0,
     membership_level VARCHAR(50) NULL,
     user_id VARCHAR(36) NULL,
-    CONSTRAINT fk_customer_profile_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+    CONSTRAINT fk_customer_profile_user FOREIGN KEY (user_id) REFERENCES user (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS employee_profile (
@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS employee_profile (
     hire_date DATE NULL,
     shift VARCHAR(50) NULL,
     user_id VARCHAR(36) NULL,
-    CONSTRAINT fk_employee_profile_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+    CONSTRAINT fk_employee_profile_user FOREIGN KEY (user_id) REFERENCES user (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS category (
@@ -126,7 +126,7 @@ CREATE TABLE IF NOT EXISTS payment (
     change_amount DECIMAL(15, 2) NULL,
     total_refunded DECIMAL(15, 2) NULL DEFAULT 0.00,
     refund_history_json TEXT NULL,
-    CONSTRAINT fk_payment_user FOREIGN KEY (user_id) REFERENCES users (id),
+    CONSTRAINT fk_payment_user FOREIGN KEY (user_id) REFERENCES user (id),
     CONSTRAINT fk_payment_order FOREIGN KEY (order_id) REFERENCES orders (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -170,8 +170,8 @@ CREATE TABLE IF NOT EXISTS shift (
     difference DECIMAL(15, 2) NULL,
     deposited_cash DECIMAL(15, 2) NULL,
     status VARCHAR(50) NULL,
-    CONSTRAINT fk_shift_opened_by FOREIGN KEY (opened_by) REFERENCES users (id),
-    CONSTRAINT fk_shift_closed_by FOREIGN KEY (closed_by) REFERENCES users (id)
+    CONSTRAINT fk_shift_opened_by FOREIGN KEY (opened_by) REFERENCES user (id),
+    CONSTRAINT fk_shift_closed_by FOREIGN KEY (closed_by) REFERENCES user (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS discount (

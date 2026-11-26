@@ -9,6 +9,7 @@ import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -27,6 +28,7 @@ public class DiscountController {
     @Operation(summary = "Create a new discount",
             description = "Create a new discount or coupon code with percentage, validity, and code.")
     @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<DiscountResponse> createDiscount(@RequestBody @Valid DiscountRequest request) {
         return ApiResponse.<DiscountResponse>builder()
                 .result(discountService.createDiscount(request))

@@ -17,6 +17,9 @@ import java.util.Optional;
 public interface UserRepository extends JpaRepository<User, String> {
     Optional<User> findByUsername(String username);
     boolean existsByUsername(String username);
+
+    @Query("SELECT u.status, u.passwordChangedAt FROM User u WHERE u.username = :username")
+    List<Object[]> findAuthStateByUsername(@Param("username") String username);
     Page<User> findByUsernameContainingIgnoreCaseOrFullNameContainingIgnoreCase(
             String username,
             String fullName,

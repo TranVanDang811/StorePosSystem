@@ -7,6 +7,7 @@ import com.possystem.backend.shift.dto.ShiftResponse;
 import com.possystem.backend.shift.service.ShiftService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import com.possystem.backend.common.response.ApiResponse;
@@ -19,6 +20,7 @@ public class ShiftController {
     private final ShiftService shiftService;
 
     @PostMapping("/open")
+    @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<ShiftResponse> openShift(@RequestBody @Valid OpenShiftRequest request) {
         return ApiResponse.<ShiftResponse>builder()
                 .result(shiftService.openShift(request))
@@ -33,15 +35,17 @@ public class ShiftController {
     }
 
     @GetMapping("/current")
-    public ApiResponse<ShiftResponse> getCurrentShift() {
+    public ApiResponse<ShiftResponse> getCurrentShift(@RequestParam(required = false) String terminalId) {
         return ApiResponse.<ShiftResponse>builder()
-                .result(shiftService.getCurrentShift())
+                .result(shiftService.getCurrentShift(terminalId))
                 .build();
     }
 
     @GetMapping("/report")
-    public ShiftClosingReportResponse getShiftReport() {
-        return shiftService.getShiftReport();
+    public ApiResponse<ShiftClosingReportResponse> getShiftReport() {
+        return ApiResponse.<ShiftClosingReportResponse>builder()
+                .result(shiftService.getShiftReport())
+                .build();
     }
 
     @GetMapping("/export/{shiftCode}")

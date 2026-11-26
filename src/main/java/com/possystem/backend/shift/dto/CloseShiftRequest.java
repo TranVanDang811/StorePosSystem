@@ -20,5 +20,6 @@ public class CloseShiftRequest {
     long note5k;
     long note2k;
     long note1k;
+    String terminalId;
 
 }

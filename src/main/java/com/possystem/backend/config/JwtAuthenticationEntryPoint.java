@@ -1,6 +1,7 @@
 package com.possystem.backend.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.possystem.backend.common.exception.ErrorCode;
 import com.possystem.backend.common.response.ApiResponse;
 import jakarta.servlet.ServletException;
@@ -16,7 +17,7 @@ import java.io.IOException;
 @Component
 public class JwtAuthenticationEntryPoint implements AuthenticationEntryPoint {
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
 
     @Override
     public void commence(HttpServletRequest request,

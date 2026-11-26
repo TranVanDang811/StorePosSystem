@@ -8,7 +8,7 @@ spring:
   profiles:
     active: test
   datasource:
-    url: jdbc:h2:mem:pos_test_db;MODE=MySQL;NON_KEYWORDS=USER;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE
+    url: jdbc:h2:mem:pos_test_db;MODE=MySQL;NON_KEYWORDS=USER,VALUE;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE
     driverClassName: org.h2.Driver
     username: sa
     password: ""

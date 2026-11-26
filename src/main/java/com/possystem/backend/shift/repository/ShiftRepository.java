@@ -10,6 +10,10 @@ import java.util.Optional;
 public interface ShiftRepository extends JpaRepository<Shift, String> {
 
     Optional<Shift> findByStatus(ShiftStatus status);
+    Optional<Shift> findByStatusAndTerminalId(ShiftStatus status, String terminalId);
+    boolean existsByStatus(ShiftStatus status);
+    boolean existsByStatusAndTerminalId(ShiftStatus status, String terminalId);
     Optional<Shift> findTopByStatusOrderByEndTimeDesc(ShiftStatus status);
+    Optional<Shift> findTopByStatusAndTerminalIdOrderByEndTimeDesc(ShiftStatus status, String terminalId);
     Optional<Shift> findByShiftCode(String shiftCode);
 }

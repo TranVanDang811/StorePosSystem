@@ -1,11 +1,17 @@
 server:
   port: ${SERVER_PORT:8080}
+  shutdown: graceful
   servlet:
     context-path: ${CONTEXT_PATH:/backend}
 
 spring:
   application:
     name: pos-system
+  threads:
+    virtual:
+      enabled: ${SPRING_VIRTUAL_THREADS:true}
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:@spring.profiles.active@}
 
@@ -28,6 +34,41 @@ spring:
     enabled: ${ENABLE_FLYWAY:false}
     baseline-on-migrate: true
     baseline-version: 0
+
+  data:
+    redis:
+      repositories:
+        enabled: false
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: ${REDIS_TIMEOUT:1000ms}
+      connect-timeout: ${REDIS_CONNECT_TIMEOUT:500ms}
+      lettuce:
+        shutdown-timeout: 100ms
+        pool:
+          enabled: true
+          max-active: ${REDIS_POOL_MAX_ACTIVE:16}
+          max-idle: ${REDIS_POOL_MAX_IDLE:8}
+          min-idle: ${REDIS_POOL_MIN_IDLE:2}
+          max-wait: 500ms
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    listener:
+      auto-startup: ${KAFKA_ENABLED:false}
+    admin:
+      auto-create: ${KAFKA_ENABLED:false}
+      fail-fast: false
+
+  ai:
+    openai:
+      api-key: ${OPENAI_API_KEY:mock-key}
+      base-url: ${OPENAI_BASE_URL:https://api.openai.com}
+      chat:
+        options:
+          model: ${OPENAI_MODEL:gpt-4o-mini}
+          temperature: ${OPENAI_TEMPERATURE:0.3}
 
   servlet:
     multipart:
@@ -54,16 +95,111 @@ cloudinary:
   api-secret: ${CLOUDINARY_API_SECRET:}
 
 app:
+  ai:
+    enabled: ${AI_ENABLED:true}
+    provider: ${AI_PROVIDER:openai}
+    monthly-token-limit: ${AI_MONTHLY_TOKEN_LIMIT:500000}
+    daily-token-limit: ${AI_DAILY_TOKEN_LIMIT:50000}
+    cost-per-1k-prompt-tokens: 0.00015
+    cost-per-1k-completion-tokens: 0.00060
   admin:
     username: ${ADMIN_USERNAME:admin}
-    password: ${ADMIN_PASSWORD:admin}
+    password: ${ADMIN_PASSWORD:}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000}
+  cache:
+    enabled: ${CACHE_ENABLED:true}
+    circuit-breaker-cooldown-ms: ${CACHE_CB_COOLDOWN_MS:10000}
+    ttl:
+      products-list-seconds: ${CACHE_TTL_PRODUCTS_LIST:180}
+      products-detail-seconds: ${CACHE_TTL_PRODUCTS_DETAIL:300}
+      products-stats-seconds: ${CACHE_TTL_PRODUCTS_STATS:300}
+      categories-seconds: ${CACHE_TTL_CATEGORIES:1800}
+      suppliers-seconds: ${CACHE_TTL_SUPPLIERS:600}
+      discounts-seconds: ${CACHE_TTL_DISCOUNTS:120}
+      dashboard-seconds: ${CACHE_TTL_DASHBOARD:60}
+      reports-current-seconds: ${CACHE_TTL_REPORTS_CURRENT:120}
+      reports-historical-seconds: ${CACHE_TTL_REPORTS_HISTORICAL:3600}
+  rate-limit:
+    enabled: ${RATE_LIMIT_ENABLED:true}
+    redis-enabled: ${RATE_LIMIT_REDIS_ENABLED:true}
+    auth-per-minute: ${RL_AUTH_PER_MIN:30}
+    voucher-per-minute: ${RL_VOUCHER_PER_MIN:15}
+    checkout-per-minute: ${RL_CHECKOUT_PER_MIN:60}
+    report-per-minute: ${RL_REPORT_PER_MIN:30}
+    api-per-minute: ${RL_API_PER_MIN:240}
+  outbox:
+    enabled: ${OUTBOX_ENABLED:true}
+    worker-enabled: ${OUTBOX_WORKER_ENABLED:true}
+    transport: ${OUTBOX_TRANSPORT:local}
+    worker-id: ${OUTBOX_WORKER_ID:pos-worker-1}
+    batch-size: ${OUTBOX_BATCH_SIZE:30}
+    poll-interval-ms: ${OUTBOX_POLL_INTERVAL_MS:2000}
+    max-retries: ${OUTBOX_MAX_RETRIES:5}
+    base-backoff-ms: ${OUTBOX_BASE_BACKOFF_MS:5000}
+    max-backoff-ms: ${OUTBOX_MAX_BACKOFF_MS:300000}
+    lease-timeout-seconds: ${OUTBOX_LEASE_TIMEOUT_SECONDS:60}
+  kafka:
+    enabled: ${KAFKA_ENABLED:false}
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer-group: ${KAFKA_CONSUMER_GROUP:pos-monolith-workers}
+    send-timeout-ms: ${KAFKA_SEND_TIMEOUT_MS:5000}
+    retry-attempts: ${KAFKA_RETRY_ATTEMPTS:3}
+    retry-initial-delay-ms: ${KAFKA_RETRY_INITIAL_DELAY_MS:2000}
+    retry-multiplier: ${KAFKA_RETRY_MULTIPLIER:2.0}
+    retry-max-delay-ms: ${KAFKA_RETRY_MAX_DELAY_MS:30000}
+    topics:
+      orders: ${KAFKA_TOPIC_ORDERS:pos.orders.events}
+      payments: ${KAFKA_TOPIC_PAYMENTS:pos.payments.events}
+      inventory: ${KAFKA_TOPIC_INVENTORY:pos.inventory.events}
+      loyalty: ${KAFKA_TOPIC_LOYALTY:pos.loyalty.events}
+      vouchers: ${KAFKA_TOPIC_VOUCHERS:pos.vouchers.events}
+      shifts: ${KAFKA_TOPIC_SHIFTS:pos.shifts.events}
+      partitions: ${KAFKA_TOPIC_PARTITIONS:3}
+      replicas: ${KAFKA_TOPIC_REPLICAS:1}
 
 jwt:
   signerKey: ${JWT_SIGNER_KEY:}
-  valid-duration: ${JWT_VALID_DURATION:86400}
+  valid-duration: ${JWT_VALID_DURATION:3600}
   refreshable-duration: ${JWT_REFRESH_DURATION:604800}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,caches
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+        histogram-flavor: prometheus
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
+      export:
+        enabled: ${OTEL_EXPORTER_ENABLED:false}
+    metrics:
+      export:
+        enabled: ${OTEL_METRICS_EXPORTER_ENABLED:false}
+    logging:
+      export:
+        enabled: false
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      percentiles:
+        http.server.requests: 0.5,0.95,0.99
+      slo:
+        http.server.requests: 50ms,100ms,250ms,500ms,1000ms,2500ms
+  tracing:
+    enabled: ${TRACING_ENABLED:true}
+    sampling:
+      probability: ${TRACE_SAMPLING_PROBABILITY:1.0}
+    propagation:
+      type: W3C
 
 open:
   api:

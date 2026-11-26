@@ -1,6 +1,8 @@
 package com.possystem.backend.config;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
@@ -13,6 +15,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.cors.CorsConfiguration;
 
@@ -24,27 +27,32 @@ import java.util.Arrays;
 public class SecurityConfig {
     // Truy cập không cần security
     private static final String[] PUBLIC_POST_ENDPOINTS = {
-            "/auth/token", "/auth/introspect", "/auth/logout", "/auth/refresh"
+            "/auth/token", "/auth/introspect", "/auth/logout", "/auth/refresh",
+            "/payments/webhook/**"
     };
 
     private static final String[] PUBLIC_GET_ENDPOINTS = {
-            "/actuator/health", "/actuator/info",
-            "/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html"
+            "/actuator/health", "/actuator/info", "/actuator/prometheus",
+            "/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html",
+            "/ws/pos/**"
     };
 
     private final CustomJwtDecoder customJwtDecoder;
     private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
     private final Environment env;
+    private final ObjectProvider<RateLimitingFilter> rateLimitingFilterProvider;
 
     @Value("${app.cors.allowed-origins:http://localhost:5173,http://localhost:3000}")
     private String allowedOrigins;
 
     public SecurityConfig(CustomJwtDecoder customJwtDecoder,
             JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint,
-            Environment env) {
+            Environment env,
+            ObjectProvider<RateLimitingFilter> rateLimitingFilterProvider) {
         this.customJwtDecoder = customJwtDecoder;
         this.jwtAuthenticationEntryPoint = jwtAuthenticationEntryPoint;
         this.env = env;
+        this.rateLimitingFilterProvider = rateLimitingFilterProvider;
     }
 
     @Bean
@@ -67,6 +75,7 @@ public class SecurityConfig {
                     corsConfig.setAllowCredentials(true);
                     corsConfig.addExposedHeader("Authorization");
                     corsConfig.addExposedHeader("X-Total-Count");
+                    corsConfig.addExposedHeader("X-Trace-Id");
                     return corsConfig;
                 }))
                 .authorizeHttpRequests(request -> {
@@ -83,8 +92,28 @@ public class SecurityConfig {
                 .jwtAuthenticationConverter(jwtAuthenticationConverter()))
                 .authenticationEntryPoint(jwtAuthenticationEntryPoint));
 
+        httpSecurity.headers(headers -> headers
+                .frameOptions(frameOptions -> frameOptions.deny())
+                .contentTypeOptions(contentTypeOptions -> {})
+        );
+
         httpSecurity.csrf(AbstractHttpConfigurer::disable);
+
+        // Execute rate limiter after BearerTokenAuthenticationFilter so authenticated User ID is populated
+        RateLimitingFilter rateLimitingFilter = rateLimitingFilterProvider.getIfAvailable();
+        if (rateLimitingFilter != null) {
+            httpSecurity.addFilterAfter(rateLimitingFilter, BearerTokenAuthenticationFilter.class);
+        }
+
         return httpSecurity.build();
+    }
+
+    @Bean
+    public FilterRegistrationBean<RateLimitingFilter> rateLimitingFilterRegistration(RateLimitingFilter filter) {
+        FilterRegistrationBean<RateLimitingFilter> registration = new FilterRegistrationBean<>(filter);
+        // Managed inside Spring Security FilterChain to avoid duplicate execution per request
+        registration.setEnabled(false);
+        return registration;
     }
 
     @Bean

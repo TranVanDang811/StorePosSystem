@@ -1,18 +1,26 @@
 package com.possystem.backend.discount.service.impl;
 
+import com.possystem.backend.common.cache.CacheInvalidationService;
+import com.possystem.backend.common.cache.CacheNames;
+import com.possystem.backend.common.cache.PosCacheService;
 import com.possystem.backend.common.exception.AppException;
 import com.possystem.backend.common.exception.ErrorCode;
+import com.possystem.backend.common.observability.PosBusinessMetrics;
+import com.possystem.backend.common.outbox.event.PosEventType;
+import com.possystem.backend.common.outbox.service.OutboxPublisher;
 import com.possystem.backend.common.util.mapper.DiscountMapper;
 import com.possystem.backend.discount.dto.DiscountRequest;
 import com.possystem.backend.discount.dto.DiscountResponse;
 import com.possystem.backend.discount.dto.PointDiscountResult;
 import com.possystem.backend.discount.entity.Discount;
+import com.possystem.backend.discount.entity.DiscountUsage;
+import com.possystem.backend.discount.repository.DiscountUsageRepository;
 import com.possystem.backend.discount.repository.DiscountRepository;
 import com.possystem.backend.discount.service.DiscountService;
 import com.possystem.backend.order.entity.Orders;
 import com.possystem.backend.user.entity.CustomerProfile;
 import com.possystem.backend.user.repository.CustomerProfileRepository;
-import jakarta.transaction.Transactional;
+import org.springframework.transaction.annotation.Transactional;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
@@ -24,6 +32,7 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -34,6 +43,11 @@ public class DiscountServiceImpl implements DiscountService {
     final DiscountRepository discountRepository;
     final DiscountMapper discountMapper;
     CustomerProfileRepository customerProfileRepository;
+    DiscountUsageRepository discountUsageRepository;
+    PosCacheService posCacheService;
+    CacheInvalidationService cacheInvalidationService;
+    OutboxPublisher outboxPublisher;
+    PosBusinessMetrics businessMetrics;
 
     private boolean isActive(LocalDateTime startDate, LocalDateTime endDate) {
         LocalDateTime now = LocalDateTime.now();
@@ -64,6 +78,9 @@ public class DiscountServiceImpl implements DiscountService {
         }
 
         log.info("---->Completed status update {} discount.", updatedCount);
+        if (updatedCount > 0 && cacheInvalidationService != null) {
+            cacheInvalidationService.evictDiscountCaches();
+        }
     }
 
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
@@ -75,11 +92,15 @@ public class DiscountServiceImpl implements DiscountService {
         discount.setEndDate(request.getEndDate());
         discount.setCode(request.getCode());
         discount.setValue(request.getValue());
+        discount.setUsageLimit(request.getUsageLimit());
 
         boolean timeValid = isActive(discount.getStartDate(), discount.getEndDate());
         discount.setActive(request.isActive() && timeValid);
 
         Discount savedDiscount = discountRepository.save(discount);
+        if (cacheInvalidationService != null) {
+            cacheInvalidationService.evictDiscountCaches();
+        }
         return discountMapper.toDiscountResponse(savedDiscount);
     }
 
@@ -94,6 +115,9 @@ public class DiscountServiceImpl implements DiscountService {
         discount.setActive(request.isActive() && timeValid);
 
         Discount updatedDiscount = discountRepository.save(discount);
+        if (cacheInvalidationService != null) {
+            cacheInvalidationService.evictDiscountCaches();
+        }
         return discountMapper.toDiscountResponse(updatedDiscount);
     }
 
@@ -103,6 +127,9 @@ public class DiscountServiceImpl implements DiscountService {
             throw new AppException(ErrorCode.DISCOUNT_NOT_FOUND_MESSAGE, id);
         }
         discountRepository.deleteById(id);
+        if (cacheInvalidationService != null) {
+            cacheInvalidationService.evictDiscountCaches();
+        }
     }
 
     @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
@@ -114,20 +141,35 @@ public class DiscountServiceImpl implements DiscountService {
 
     @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
     public List<DiscountResponse> getAllDiscounts() {
-        return discountRepository.findAll()
+        if (posCacheService != null) {
+            return posCacheService.getOrLoad(CacheNames.DISCOUNTS_ALL, "all",
+                    () -> new ArrayList<>(discountRepository.findAll()
+                            .stream()
+                            .map(discountMapper::toDiscountResponse)
+                            .toList()));
+        }
+        return new ArrayList<>(discountRepository.findAll()
                 .stream()
                 .map(discountMapper::toDiscountResponse)
-                .toList(); // Replaced collect with toList()
+                .toList());
     }
 
     @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
     public List<DiscountResponse> getActiveDiscounts() {
+        if (posCacheService != null) {
+            return posCacheService.getOrLoad(CacheNames.DISCOUNTS_ACTIVE, "active", () -> {
+                LocalDateTime now = LocalDateTime.now();
+                return new ArrayList<>(discountRepository.findActiveDiscounts(now)
+                        .stream()
+                        .map(discountMapper::toDiscountResponse)
+                        .toList());
+            });
+        }
         LocalDateTime now = LocalDateTime.now();
-
-        return discountRepository.findActiveDiscounts(now)
+        return new ArrayList<>(discountRepository.findActiveDiscounts(now)
                 .stream()
                 .map(discountMapper::toDiscountResponse)
-                .toList();
+                .toList());
     }
 
     @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
@@ -144,20 +186,23 @@ public class DiscountServiceImpl implements DiscountService {
         return discountMapper.toDiscountResponse(discount);
     }
 
+    @Transactional
     public BigDecimal applyDiscountCode(Orders order, String discountCode) {
 
         BigDecimal discountAmount;
 
         if (discountCode != null && !discountCode.isBlank()) {
 
-            Discount discount = discountRepository.findByCode(discountCode)
+            Discount discount = discountRepository.findByCodeWithLock(discountCode.trim())
+                    .or(() -> discountRepository.findByCode(discountCode.trim()))
                     .orElseThrow(() -> new AppException(ErrorCode.DISCOUNT_NOT_FOUND, discountCode));
 
-            LocalDateTime now = LocalDateTime.now();
-
-            if ((discount.getStartDate() != null && now.isBefore(discount.getStartDate()))
-                    || (discount.getEndDate() != null && now.isAfter(discount.getEndDate()))) {
-                throw new AppException(ErrorCode.INVALID_DISCOUNT_CODE);
+            if (!discount.isCurrentlyValid()) {
+                if (businessMetrics != null) {
+                    businessMetrics.recordVoucherRedemption("FAILED", BigDecimal.ZERO);
+                }
+                throw new AppException(ErrorCode.INVALID_DISCOUNT_CODE,
+                        "Mã giảm giá không hợp lệ hoặc đã hết lượt sử dụng");
             }
 
             discountAmount = discount.getValue();
@@ -167,8 +212,50 @@ public class DiscountServiceImpl implements DiscountService {
                 discountAmount = order.getTotalPrice();
             }
 
+            // Ghi nhận lượt sử dụng & cập nhật usedCount
+            discount.incrementUsedCount();
+            discountRepository.save(discount);
+
+            if (discountUsageRepository != null && order.getId() != null) {
+                if (!discountUsageRepository.existsByDiscount_IdAndOrder_Id(discount.getId(), order.getId())) {
+                    DiscountUsage usage = DiscountUsage.builder()
+                            .discount(discount)
+                            .order(order)
+                            .discountAmount(discountAmount)
+                            .usedAt(LocalDateTime.now())
+                            .build();
+                    discountUsageRepository.save(usage);
+                }
+            }
+
             order.setDiscountCode(discountCode);
             order.setDiscountAmount(discountAmount.setScale(2, RoundingMode.HALF_UP));
+
+            if (outboxPublisher != null && discountAmount.compareTo(BigDecimal.ZERO) > 0) {
+                java.util.Map<String, Object> voucherPayload = new java.util.LinkedHashMap<>();
+                voucherPayload.put("discountId", discount.getId());
+                voucherPayload.put("discountCode", discount.getCode());
+                voucherPayload.put("discountName", discount.getName());
+                voucherPayload.put("orderId", order.getId());
+                voucherPayload.put("orderCode", order.getOrderCode());
+                voucherPayload.put("discountAmount", order.getDiscountAmount());
+                voucherPayload.put("usedCount", discount.getUsedCount());
+                voucherPayload.put("usageLimit", discount.getUsageLimit());
+                outboxPublisher.publish(
+                        "VOUCHER",
+                        discount.getId(),
+                        PosEventType.VOUCHER_REDEEMED,
+                        "voucher:" + discount.getId(),
+                        order.getOrderCode(),
+                        voucherPayload);
+            }
+
+            if (cacheInvalidationService != null) {
+                cacheInvalidationService.evictDiscountCaches();
+            }
+            if (businessMetrics != null) {
+                businessMetrics.recordVoucherRedemption("SUCCESS", order.getDiscountAmount());
+            }
 
         } else {
             order.setDiscountAmount(BigDecimal.ZERO);

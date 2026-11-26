@@ -13,6 +13,7 @@ import org.springframework.core.io.InputStreamResource;
 import org.springframework.data.domain.Page;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -34,6 +35,7 @@ public class ImportOrderController {
     // Create new receipt
     @Operation(summary = "Create new import order", description = "Create a new import order with detailed product items.")
     @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
     ApiResponse<ImportOrderResponse> createImportOrder(@RequestBody @Valid ImportOrderCreateRequest request) {
         return ApiResponse.<ImportOrderResponse>builder()
                 .result(importOrderService.createImportOrder(request))
@@ -60,8 +62,9 @@ public class ImportOrderController {
                 .result(importOrderService.getStatistics(from, to))
                 .build();
     }
-
+    @Operation(summary = "Confirm and finalize import order", description = "Finalize import receipt, increment warehouse stock, and update moving average cost.")
     @PutMapping("/{id}/confirm-finalize")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
     public ApiResponse<ImportOrderResponse> confirmAndFinalize(
             @PathVariable String id) {
 
@@ -73,6 +76,7 @@ public class ImportOrderController {
 
     @Operation(summary = "Cancel import order", description = "Cancel an import order (only allowed if not fully imported).")
     @PutMapping("/{id}/cancel")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
     public ApiResponse<ImportOrderResponse> cancelImportOrder(
             @PathVariable String id) {
 

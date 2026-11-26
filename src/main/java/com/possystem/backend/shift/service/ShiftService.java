@@ -14,6 +14,7 @@ public interface ShiftService {
     ShiftResponse closeShift(CloseShiftRequest request);
 
     ShiftResponse getCurrentShift();
+    ShiftResponse getCurrentShift(String terminalId);
     ShiftClosingReportResponse getShiftReport();
     ResponseEntity<String> exportShiftReportHtml(String shiftCode);
 }

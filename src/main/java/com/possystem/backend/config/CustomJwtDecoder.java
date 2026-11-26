@@ -1,8 +1,8 @@
 package com.possystem.backend.config;
 
-import com.nimbusds.jose.JOSEException;
-import com.possystem.backend.auth.dto.IntrospectRequest;
-import com.possystem.backend.auth.service.AuthenticationService;
+import com.possystem.backend.auth.repository.InvalidatedTokenRepository;
+import com.possystem.backend.common.enums.UserStatus;
+import com.possystem.backend.user.repository.UserRepository;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,47 +15,71 @@ import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDateTime;
+import java.util.List;
 import javax.crypto.spec.SecretKeySpec;
-import java.text.ParseException;
 
 @Component
 public class CustomJwtDecoder implements JwtDecoder {
 
-    // Lấy giá trị của `jwt.signerKey` từ file cấu hình (application.yml hoặc application.properties)
     @Value("${jwt.signerKey}")
     private String signerKey;
 
-    // Inject service AuthenticationService để gọi API introspection
     @Autowired
-    private AuthenticationService authenticationService;
+    private InvalidatedTokenRepository invalidatedTokenRepository;
 
-    // Đối tượng NimbusJwtDecoder dùng để giải mã JWT, sẽ được khởi tạo khi cần
+    @Autowired
+    private UserRepository userRepository;
+
     private NimbusJwtDecoder nimbusJwtDecoder = null;
-
 
     private static final Logger logger = LoggerFactory.getLogger(CustomJwtDecoder.class);
 
-    // Override phương thức decode() từ interface JwtDecoder để thực hiện giải mã JWT
     @Override
     public Jwt decode(String token) throws JwtException {
-        try {
-            // Gọi service introspect để kiểm tra token có hợp lệ không
-            var response = authenticationService.introspect(
-                    IntrospectRequest.builder().token(token).build());
+        // 1. NimbusJwtDecoder performs signature verification & expiration check in 1 optimized pass
+        Jwt jwt = nimbusJwtDecoder.decode(token);
 
-            // Nếu token không hợp lệ, ném ra ngoại lệ JwtException
-            if (!response.isValid()) {
-                logger.warn("Token invalid: {}", token);
-                throw new JwtException("Token invalid");
-            }
-        } catch (JOSEException | ParseException e) {
-            logger.error("Error during token introspection", e);
-            // Nếu có lỗi xảy ra trong quá trình kiểm tra, ném ra JwtException với thông báo lỗi
-            throw new JwtException(e.getMessage());
+        // 2. Fast revocation lookup by JTI in invalidated_token table
+        String jti = jwt.getId();
+        if (jti != null && invalidatedTokenRepository.existsById(jti)) {
+            logger.warn("Received revoked JWT token with jti: {}", jti);
+            throw new JwtException("Token has been revoked");
         }
 
-        // Giải mã và trả về đối tượng JWT
-        return nimbusJwtDecoder.decode(token);
+        // 3. Prevent using Refresh Token as Access Token on API endpoints
+        String tokenType = jwt.getClaimAsString("token_type");
+        if ("REFRESH".equalsIgnoreCase(tokenType)) {
+            logger.warn("Attempt to use Refresh Token as Access Token for subject: {}", jwt.getSubject());
+            throw new JwtException("Refresh token cannot be used to access protected resources");
+        }
+
+        // 4. Verify user status is still ACTIVE & Token invalidation on password change (lightweight scalar projection, avoids loading @OneToOne profiles)
+        String username = jwt.getSubject();
+        if (username != null && userRepository != null) {
+            List<Object[]> authRows = userRepository.findAuthStateByUsername(username);
+            if (authRows != null && !authRows.isEmpty()) {
+                Object[] row = authRows.get(0);
+                UserStatus status = (row[0] instanceof UserStatus s) ? s : null;
+                LocalDateTime passwordChangedAt = (row[1] instanceof LocalDateTime ldt) ? ldt : null;
+
+                if (status != null && status != UserStatus.ACTIVE) {
+                    logger.warn("Access denied for deactivated user: {}", username);
+                    throw new JwtException("User account is inactive or disabled");
+                }
+                if (passwordChangedAt != null) {
+                    Object pwdTsObj = jwt.getClaims().get("pwd_ts");
+                    long tokenPwdTs = (pwdTsObj instanceof Number number) ? number.longValue() : 0L;
+                    long userPwdTs = passwordChangedAt.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli();
+                    if (tokenPwdTs < (userPwdTs - 1000)) {
+                        logger.warn("Access denied: Token invalidated due to password change for user {}", username);
+                        throw new JwtException("Token has been invalidated due to password change");
+                    }
+                }
+            }
+        }
+
+        return jwt;
     }
 
     @PostConstruct

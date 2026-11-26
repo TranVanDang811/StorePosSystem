@@ -7,12 +7,17 @@ import com.lowagie.text.Rectangle;
 import com.lowagie.text.pdf.PdfPCell;
 import com.lowagie.text.pdf.PdfPTable;
 import com.lowagie.text.pdf.PdfWriter;
+import com.possystem.backend.common.cache.CacheInvalidationService;
 import com.possystem.backend.common.enums.OrderStatus;
 import com.possystem.backend.common.enums.PaymentMethod;
 import com.possystem.backend.common.enums.PaymentStatus;
 import com.possystem.backend.common.enums.ProductStatus;
 import com.possystem.backend.common.exception.AppException;
 import com.possystem.backend.common.exception.ErrorCode;
+import com.possystem.backend.common.observability.PosBusinessMetrics;
+import com.possystem.backend.common.outbox.event.PosEventType;
+import com.possystem.backend.common.outbox.service.OutboxPublisher;
+import com.possystem.backend.common.util.CurrencyUtils;
 import com.possystem.backend.common.util.mapper.OrderMapper;
 import com.possystem.backend.common.util.mapper.PaymentMapper;
 import com.possystem.backend.discount.dto.PointDiscountResult;
@@ -26,14 +31,17 @@ import com.possystem.backend.payment.dto.*;
 import com.possystem.backend.payment.entity.Payment;
 import com.possystem.backend.payment.repository.PaymentRepository;
 import com.possystem.backend.payment.service.PaymentService;
+import com.possystem.backend.payment.util.ThermalReceiptRenderer;
 import com.possystem.backend.product.entity.Product;
+import com.possystem.backend.common.enums.ShiftStatus;
 import com.possystem.backend.product.repository.ProductRepository;
+import com.possystem.backend.shift.repository.ShiftRepository;
 import com.possystem.backend.user.dto.CustomerHistoryResponse;
 import com.possystem.backend.user.entity.CustomerProfile;
 import com.possystem.backend.user.entity.User;
 import com.possystem.backend.user.repository.CustomerProfileRepository;
 import com.possystem.backend.user.repository.UserRepository;
-import jakarta.transaction.Transactional;
+import org.springframework.transaction.annotation.Transactional;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
@@ -52,6 +60,13 @@ import org.springframework.stereotype.Service;
 
 import java.awt.*;
 import java.io.ByteArrayOutputStream;
+import com.possystem.backend.product.entity.StockMovement;
+import com.possystem.backend.product.repository.StockMovementRepository;
+import com.possystem.backend.user.entity.LoyaltyTransaction;
+import com.possystem.backend.user.repository.LoyaltyTransactionRepository;
+import java.util.stream.Collectors;
+import java.util.Map;
+import java.util.Set;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
@@ -75,10 +90,36 @@ public class PaymentServiceImpl implements PaymentService {
     final ObjectMapper objectMapper;
     final DiscountService discountService;
     ProductRepository productRepository;
+    ShiftRepository shiftRepository;
+    OutboxPublisher outboxPublisher;
+    StockMovementRepository stockMovementRepository;
+    LoyaltyTransactionRepository loyaltyTransactionRepository;
+    CacheInvalidationService cacheInvalidationService;
+    PosBusinessMetrics businessMetrics;
 
     @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
     @Transactional
     public PaymentResponse createPayment(PaymentRequest request) {
+
+        // =========================
+        // 0. SHIFT GUARD: Bắt buộc phải có ca làm việc đang mở
+        // =========================
+        shiftRepository.findByStatus(ShiftStatus.OPEN)
+                .orElseThrow(() -> new AppException(ErrorCode.NO_OPENED_SHIFT));
+
+        // 0.1 IDEMPOTENCY KEY CHECK: Chống xử lý trùng lặp request
+        if (request.getIdempotencyKey() != null && !request.getIdempotencyKey().isBlank()) {
+            var existingIdempotent = paymentRepository.findByIdempotencyKey(request.getIdempotencyKey().trim());
+            if (existingIdempotent.isPresent()) {
+                Payment p = existingIdempotent.get();
+                log.warn("Idempotent payment detected for key {}. Returning existing record {}.",
+                        request.getIdempotencyKey(), p.getId());
+                PaymentResponse replay = paymentMapper.toPaymentResponse(p);
+                replay.setEarnedPoints(p.getEarnedPoints() != null ? p.getEarnedPoints() : 0);
+                replay.setUsedPoints(p.getUsedPoints() != null ? p.getUsedPoints() : 0);
+                return replay;
+            }
+        }
 
         User user = null;
         CustomerProfile profile = null;
@@ -96,131 +137,313 @@ public class PaymentServiceImpl implements PaymentService {
         Orders order = orderRepository.findById(request.getOrderId())
                 .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
 
-        if (paymentRepository.findByOrder_Id(order.getId()) != null) {
+        Payment existingPayment = paymentRepository.findByOrder_Id(order.getId());
+        if (existingPayment != null) {
+            // Idempotent replay: Nếu đơn hàng đã hoàn tất thanh toán thành công từ trước,
+            // trả về PaymentResponse hiện có
+            if (order.getStatus() == OrderStatus.PAID && existingPayment.getStatus() == PaymentStatus.SUCCESS) {
+                log.warn(
+                        "Idempotent replay detected for orderId {}. Returning existing payment response without re-processing.",
+                        order.getId());
+                PaymentResponse replay = paymentMapper.toPaymentResponse(existingPayment);
+                replay.setEarnedPoints(
+                        existingPayment.getEarnedPoints() != null ? existingPayment.getEarnedPoints() : 0);
+                replay.setUsedPoints(existingPayment.getUsedPoints() != null ? existingPayment.getUsedPoints() : 0);
+                return replay;
+            }
             throw new AppException(ErrorCode.PAYMENT_ALREADY_EXISTS);
         }
 
-        BigDecimal orderFinalAmount = order.getFinalAmount();
+        try {
+            BigDecimal orderFinalAmount = order.getFinalAmount();
 
-        if (orderFinalAmount == null || orderFinalAmount.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new AppException(ErrorCode.INVALID_ORDER_AMOUNT);
-        }
-
-        // =========================
-
-        int actualUsedPoints = 0;
-        BigDecimal pointDiscount = BigDecimal.ZERO;
-
-        if (profile != null && request.getUsedPoints() != null) {
-
-            PointDiscountResult result = discountService.applyPointDiscount(
-                    profile,
-                    request.getUsedPoints(),
-                    orderFinalAmount);
-
-            pointDiscount = result.getDiscountAmount();
-            actualUsedPoints = result.getUsedPoints();
-        }
-
-        // =========================
-
-        BigDecimal paymentAmount = orderFinalAmount.subtract(pointDiscount);
-
-        if (paymentAmount.compareTo(BigDecimal.ZERO) < 0) {
-            paymentAmount = BigDecimal.ZERO;
-        }
-
-        // =========================
-
-        if (request.getMethod() == PaymentMethod.CASH) {
-
-            if (request.getCashReceived() == null ||
-                    request.getCashReceived().compareTo(paymentAmount) < 0) {
-
-                throw new AppException(ErrorCode.INVALID_PAYMENT_AMOUNT,
-                        "Khách đưa không đủ tiền");
-            }
-        }
-
-        // =========================
-
-        BigDecimal changeAmount = BigDecimal.ZERO;
-
-        if (request.getMethod() == PaymentMethod.CASH) {
-            changeAmount = request.getCashReceived().subtract(paymentAmount);
-        }
-
-        // =========================
-
-        int earnedPoints = 0;
-        int remainingPoints = 0;
-
-        if (profile != null) {
-
-            earnedPoints = paymentAmount
-                    .multiply(BigDecimal.valueOf(0.01))
-                    .setScale(0, RoundingMode.DOWN)
-                    .intValue();
-
-            profile.setLoyaltyPoints(profile.getLoyaltyPoints() + earnedPoints);
-
-            customerProfileRepository.save(profile);
-
-            remainingPoints = profile.getLoyaltyPoints();
-        }
-
-        // =========================
-
-        Payment payment = Payment.builder()
-                .order(order)
-                .user(user)
-                .amount(paymentAmount)
-                .pointDiscount(pointDiscount)
-                .cashReceived(request.getCashReceived())
-                .changeAmount(changeAmount)
-                .method(request.getMethod())
-                .status(PaymentStatus.SUCCESS)
-                .paymentDate(LocalDateTime.now())
-                .transactionId("TXN-" + System.currentTimeMillis())
-                .note(request.getNote())
-                .earnedPoints(earnedPoints)
-                .usedPoints(actualUsedPoints)
-                .build();
-
-        paymentRepository.save(payment);
-
-        // =========================
-        for (OrderDetail detail : order.getOrderDetails()) {
-
-            Product product = detail.getProduct();
-
-            int newStock = product.getStock() - detail.getQuantity();
-
-            if (newStock < 0) {
-                throw new AppException(ErrorCode.PRODUCT_OUT_OF_STOCK);
+            if (orderFinalAmount == null || orderFinalAmount.compareTo(BigDecimal.ZERO) <= 0) {
+                throw new AppException(ErrorCode.INVALID_ORDER_AMOUNT);
             }
 
-            product.setStock(newStock);
+            // 1. Pessimistic Locking on products to serialize concurrent stock deductions
+            Set<String> productIds = order.getOrderDetails().stream()
+                    .map(detail -> detail.getProduct().getId())
+                    .collect(Collectors.toSet());
 
-            // nếu hết hàng → đổi trạng thái
-            if (newStock == 0) {
-                product.setStatus(ProductStatus.OUT_OF_STOCK);
+            Map<String, Product> lockedProductMap = productRepository.findAllByIdWithLock(productIds).stream()
+                    .collect(Collectors.toMap(Product::getId, p -> p));
+
+            // Validate stock availability under lock
+            for (OrderDetail detail : order.getOrderDetails()) {
+                Product product = lockedProductMap.getOrDefault(detail.getProduct().getId(), detail.getProduct());
+                if (product == null || product.getStock() < detail.getQuantity()) {
+                    throw new AppException(ErrorCode.PRODUCT_OUT_OF_STOCK,
+                            "Sản phẩm " + (product != null ? product.getName() : "") + " đã hết hoặc không đủ tồn kho");
+                }
             }
 
-            productRepository.save(product);
+            // =========================
+
+            int actualUsedPoints = 0;
+            BigDecimal pointDiscount = BigDecimal.ZERO;
+
+            CustomerProfile lockedProfile = null;
+            if (profile != null) {
+                lockedProfile = customerProfileRepository.findByIdWithLock(profile.getId()).orElse(profile);
+            }
+
+            if (lockedProfile != null && request.getUsedPoints() != null && request.getUsedPoints() > 0) {
+
+                PointDiscountResult result = discountService.applyPointDiscount(
+                        lockedProfile,
+                        request.getUsedPoints(),
+                        orderFinalAmount);
+
+                pointDiscount = result.getDiscountAmount();
+                actualUsedPoints = result.getUsedPoints();
+
+                // Lưu lịch sử dùng điểm chống trùng
+                LoyaltyTransaction redeemTx = LoyaltyTransaction.builder()
+                        .customerProfile(lockedProfile)
+                        .referenceId(order.getId())
+                        .transactionType("REDEEM")
+                        .pointsChange(-actualUsedPoints)
+                        .balanceAfter(lockedProfile.getLoyaltyPoints())
+                        .idempotencyKey("REDEEM-" + order.getId())
+                        .note("Trừ điểm tích lũy đơn " + order.getOrderCode())
+                        .build();
+                loyaltyTransactionRepository.save(redeemTx);
+            }
+
+            // =========================
+
+            BigDecimal paymentAmount = orderFinalAmount.subtract(pointDiscount);
+
+            if (paymentAmount.compareTo(BigDecimal.ZERO) < 0) {
+                paymentAmount = BigDecimal.ZERO;
+            }
+
+            // =========================
+
+            if (request.getMethod() == PaymentMethod.CASH) {
+
+                if (request.getCashReceived() == null ||
+                        request.getCashReceived().compareTo(paymentAmount) < 0) {
+
+                    throw new AppException(ErrorCode.INVALID_PAYMENT_AMOUNT,
+                            "Khách đưa không đủ tiền");
+                }
+            }
+
+            // =========================
+
+            BigDecimal changeAmount = BigDecimal.ZERO;
+
+            if (request.getMethod() == PaymentMethod.CASH) {
+                changeAmount = request.getCashReceived().subtract(paymentAmount);
+            }
+
+            // =========================
+
+            int earnedPoints = 0;
+            int remainingPoints = 0;
+
+            if (lockedProfile != null && paymentAmount.compareTo(BigDecimal.ZERO) > 0) {
+
+                earnedPoints = paymentAmount
+                        .multiply(BigDecimal.valueOf(0.01))
+                        .setScale(0, RoundingMode.DOWN)
+                        .intValue();
+
+                if (earnedPoints > 0) {
+                    lockedProfile.setLoyaltyPoints(lockedProfile.getLoyaltyPoints() + earnedPoints);
+                    customerProfileRepository.save(lockedProfile);
+
+                    LoyaltyTransaction earnTx = LoyaltyTransaction.builder()
+                            .customerProfile(lockedProfile)
+                            .referenceId(order.getId())
+                            .transactionType("EARN")
+                            .pointsChange(earnedPoints)
+                            .balanceAfter(lockedProfile.getLoyaltyPoints())
+                            .idempotencyKey("EARN-" + order.getId())
+                            .note("Tích điểm 1% đơn " + order.getOrderCode())
+                            .build();
+                    loyaltyTransactionRepository.save(earnTx);
+                }
+
+                remainingPoints = lockedProfile.getLoyaltyPoints();
+            }
+
+            // =========================
+
+            Payment payment = Payment.builder()
+                    .order(order)
+                    .user(user)
+                    .amount(paymentAmount)
+                    .pointDiscount(pointDiscount)
+                    .cashReceived(request.getCashReceived())
+                    .changeAmount(changeAmount)
+                    .method(request.getMethod())
+                    .status(PaymentStatus.SUCCESS)
+                    .paymentDate(LocalDateTime.now())
+                    .transactionId(generateTransactionId())
+                    .idempotencyKey(request.getIdempotencyKey())
+                    .note(request.getNote())
+                    .earnedPoints(earnedPoints)
+                    .usedPoints(actualUsedPoints)
+                    .build();
+
+            payment = paymentRepository.save(payment);
+
+            // =========================
+            // Deduct inventory under lock, record StockMovement, and collect InventoryUpdated payloads
+            List<Map<String, Object>> stockEvents = new ArrayList<>();
+            for (OrderDetail detail : order.getOrderDetails()) {
+                Product product = lockedProductMap.getOrDefault(detail.getProduct().getId(), detail.getProduct());
+                int beforeStock = product.getStock();
+                product.deductStock(detail.getQuantity());
+                productRepository.save(product);
+
+                StockMovement movement = StockMovement.builder()
+                        .product(product)
+                        .movementType("SALE")
+                        .referenceId(order.getId())
+                        .quantityBefore(beforeStock)
+                        .quantityChange(-detail.getQuantity())
+                        .quantityAfter(product.getStock())
+                        .note("Bán hàng POS - Đơn " + order.getOrderCode())
+                        .createdBy(user != null ? user.getId() : null)
+                        .build();
+                stockMovementRepository.save(movement);
+
+                Map<String, Object> invPayload = new java.util.LinkedHashMap<>();
+                invPayload.put("productId", product.getId());
+                invPayload.put("productCode", product.getProductCode());
+                invPayload.put("productName", product.getName());
+                invPayload.put("movementType", "SALE");
+                invPayload.put("beforeStock", beforeStock);
+                invPayload.put("quantityChange", -detail.getQuantity());
+                invPayload.put("afterStock", product.getStock());
+                invPayload.put("referenceId", order.getId());
+                stockEvents.add(invPayload);
+            }
+            order.setStatus(OrderStatus.PAID);
+            orderRepository.save(order);
+
+            // =========================
+
+            PaymentResponse response = paymentMapper.toPaymentResponse(payment);
+
+            response.setEarnedPoints(earnedPoints);
+            response.setRemainingPoints(remainingPoints);
+            response.setUsedPoints(actualUsedPoints);
+
+            // Transactional Outbox: Emit PaymentCompleted, OrderCompleted, InventoryUpdated, LoyaltyPointsEarned atomically
+            if (outboxPublisher != null) {
+                Map<String, Object> paymentPayload = new java.util.LinkedHashMap<>();
+                paymentPayload.put("paymentId", payment.getId());
+                paymentPayload.put("orderId", order.getId());
+                paymentPayload.put("orderCode", order.getOrderCode());
+                paymentPayload.put("amount", payment.getAmount());
+                paymentPayload.put("finalAmount", response.getFinalAmount());
+                paymentPayload.put("method", payment.getMethod() != null ? payment.getMethod().name() : null);
+                paymentPayload.put("transactionId", payment.getTransactionId());
+                paymentPayload.put("userId", user != null ? user.getId() : null);
+                paymentPayload.put("userPhone", user != null ? user.getPhone() : null);
+                paymentPayload.put("earnedPoints", earnedPoints);
+                paymentPayload.put("usedPoints", actualUsedPoints);
+                outboxPublisher.publishInCurrentTransaction(
+                        "PAYMENT",
+                        payment.getId(),
+                        PosEventType.PAYMENT_COMPLETED,
+                        "order:" + order.getId(),
+                        order.getOrderCode(),
+                        paymentPayload);
+
+                Map<String, Object> orderCompletedPayload = new java.util.LinkedHashMap<>();
+                orderCompletedPayload.put("orderId", order.getId());
+                orderCompletedPayload.put("orderCode", order.getOrderCode());
+                orderCompletedPayload.put("paymentId", payment.getId());
+                orderCompletedPayload.put("amount", payment.getAmount());
+                orderCompletedPayload.put("status", OrderStatus.PAID.name());
+                outboxPublisher.publishInCurrentTransaction(
+                        "ORDER",
+                        order.getId(),
+                        PosEventType.ORDER_COMPLETED,
+                        "order:" + order.getId(),
+                        order.getOrderCode(),
+                        orderCompletedPayload);
+
+                for (Map<String, Object> invPayload : stockEvents) {
+                    String pid = String.valueOf(invPayload.get("productId"));
+                    outboxPublisher.publishInCurrentTransaction(
+                            "INVENTORY",
+                            pid,
+                            PosEventType.INVENTORY_UPDATED,
+                            "product:" + pid,
+                            order.getOrderCode(),
+                            invPayload);
+                }
+
+                if (earnedPoints > 0 && lockedProfile != null) {
+                    Map<String, Object> loyaltyPayload = new java.util.LinkedHashMap<>();
+                    loyaltyPayload.put("customerProfileId", lockedProfile.getId());
+                    loyaltyPayload.put("userId", user != null ? user.getId() : null);
+                    loyaltyPayload.put("userPhone", user != null ? user.getPhone() : null);
+                    loyaltyPayload.put("orderId", order.getId());
+                    loyaltyPayload.put("orderCode", order.getOrderCode());
+                    loyaltyPayload.put("pointsEarned", earnedPoints);
+                    loyaltyPayload.put("balanceAfter", remainingPoints);
+                    outboxPublisher.publishInCurrentTransaction(
+                            "LOYALTY",
+                            lockedProfile.getId(),
+                            PosEventType.LOYALTY_POINTS_EARNED,
+                            "customer:" + lockedProfile.getId(),
+                            order.getOrderCode(),
+                            loyaltyPayload);
+                }
+            }
+
+            if (cacheInvalidationService != null) {
+                cacheInvalidationService.evictAfterSaleOrRefund();
+            }
+
+            if (businessMetrics != null) {
+                businessMetrics.recordPaymentCompleted(payment.getMethod(), payment.getAmount(), "POS");
+                for (Map<String, Object> invPayload : stockEvents) {
+                    Object deltaObj = invPayload.get("quantityChange");
+                    if (deltaObj instanceof Number n) {
+                        businessMetrics.recordInventoryAdjustment("SALE", n.intValue());
+                    }
+                }
+            }
+
+            return response;
+        } catch (RuntimeException ex) {
+            if (businessMetrics != null) {
+                businessMetrics.recordPaymentFailed(request.getMethod(), ex.getMessage(), "POS");
+            }
+            publishPaymentFailedSafely(order, request.getMethod(), ex.getMessage());
+            throw ex;
         }
-        order.setStatus(OrderStatus.PAID);
-        orderRepository.save(order);
+    }
 
-        // =========================
-
-        PaymentResponse response = paymentMapper.toPaymentResponse(payment);
-
-        response.setEarnedPoints(earnedPoints);
-        response.setRemainingPoints(remainingPoints);
-        response.setUsedPoints(actualUsedPoints);
-
-        return response;
+    private void publishPaymentFailedSafely(Orders order, PaymentMethod method, String reason) {
+        if (outboxPublisher == null || order == null) {
+            return;
+        }
+        try {
+            Map<String, Object> failPayload = new java.util.LinkedHashMap<>();
+            failPayload.put("orderId", order.getId());
+            failPayload.put("orderCode", order.getOrderCode());
+            failPayload.put("method", method != null ? method.name() : null);
+            failPayload.put("reason", reason != null ? reason : "Payment processing failed");
+            outboxPublisher.publishFailureInNewTransaction(
+                    "PAYMENT",
+                    order.getId(),
+                    PosEventType.PAYMENT_FAILED,
+                    "order:" + order.getId(),
+                    order.getOrderCode(),
+                    failPayload);
+        } catch (Exception loggingEx) {
+            log.warn("Could not record PaymentFailed outbox event for order {}: {}", order.getId(), loggingEx.getMessage());
+        }
     }
 
     @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
@@ -240,7 +463,7 @@ public class PaymentServiceImpl implements PaymentService {
         return paymentMapper.toPaymentResponse(payment);
     }
 
-    @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
     public Page<PaymentResponse> getPayments(
             int page,
             int size,
@@ -282,7 +505,7 @@ public class PaymentServiceImpl implements PaymentService {
                 pageable).map(paymentMapper::toPaymentResponse);
     }
 
-    @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
     public PaymentSummaryResponse getPaymentSummary(
             String fromDate,
             String toDate,
@@ -330,10 +553,10 @@ public class PaymentServiceImpl implements PaymentService {
         if (row != null && row.length >= 5) {
             return PaymentSummaryResponse.builder()
                     .totalTransactions(row[0] != null ? ((Number) row[0]).longValue() : 0L)
-                    .totalRevenue(toBigDecimal(row[1]))
-                    .totalCash(toBigDecimal(row[2]))
-                    .totalDigital(toBigDecimal(row[3]))
-                    .totalRefunded(toBigDecimal(row[4]))
+                    .totalRevenue(CurrencyUtils.toBigDecimal(row[1]))
+                    .totalCash(CurrencyUtils.toBigDecimal(row[2]))
+                    .totalDigital(CurrencyUtils.toBigDecimal(row[3]))
+                    .totalRefunded(CurrencyUtils.toBigDecimal(row[4]))
                     .build();
         }
 
@@ -347,7 +570,7 @@ public class PaymentServiceImpl implements PaymentService {
     }
 
     // --------
-    @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
     @Transactional
     public PaymentResponse refundItems(String paymentId, RefundRequest request) {
 
@@ -371,7 +594,8 @@ public class PaymentServiceImpl implements PaymentService {
 
             if (itemReq.getQuantity() <= 0 || itemReq.getQuantity() > remainingRefundable) {
                 throw new AppException(ErrorCode.INVALID_REFUND_AMOUNT,
-                        "Số lượng hoàn (" + itemReq.getQuantity() + ") vượt quá số lượng còn lại có thể hoàn (" + remainingRefundable + ")");
+                        "Số lượng hoàn (" + itemReq.getQuantity() + ") vượt quá số lượng còn lại có thể hoàn ("
+                                + remainingRefundable + ")");
             }
 
             // cập nhật số lượng đã hoàn trên chi tiết đơn
@@ -383,15 +607,47 @@ public class PaymentServiceImpl implements PaymentService {
 
             refundAmount = refundAmount.add(itemRefund);
 
-            // 📦 trả lại stock
-            Product product = detail.getProduct();
-            product.setStock(product.getStock() + itemReq.getQuantity());
+            // 📦 trả lại stock an toàn và ghi nhận StockMovement
+            Product product = productRepository.findByIdWithLock(detail.getProduct().getId())
+                    .orElse(detail.getProduct());
+            int beforeStock = product.getStock();
+            product.addStock(itemReq.getQuantity());
+            productRepository.save(product);
 
-            if (product.getStatus() == ProductStatus.OUT_OF_STOCK) {
-                product.setStatus(ProductStatus.ACTIVE);
+            if (stockMovementRepository != null) {
+                StockMovement movement = StockMovement.builder()
+                        .product(product)
+                        .movementType("REFUND")
+                        .referenceId(payment.getId())
+                        .quantityBefore(beforeStock)
+                        .quantityChange(+itemReq.getQuantity())
+                        .quantityAfter(product.getStock())
+                        .note("Hoàn trả món POS - Đơn " + order.getOrderCode())
+                        .build();
+                stockMovementRepository.save(movement);
             }
 
-            productRepository.save(product);
+            if (outboxPublisher != null) {
+                Map<String, Object> invPayload = new java.util.LinkedHashMap<>();
+                invPayload.put("productId", product.getId());
+                invPayload.put("productCode", product.getProductCode());
+                invPayload.put("productName", product.getName());
+                invPayload.put("movementType", "REFUND");
+                invPayload.put("beforeStock", beforeStock);
+                invPayload.put("quantityChange", itemReq.getQuantity());
+                invPayload.put("afterStock", product.getStock());
+                invPayload.put("referenceId", payment.getId());
+                outboxPublisher.publishInCurrentTransaction(
+                        "INVENTORY",
+                        product.getId(),
+                        PosEventType.INVENTORY_UPDATED,
+                        "product:" + product.getId(),
+                        order.getOrderCode(),
+                        invPayload);
+            }
+            if (businessMetrics != null) {
+                businessMetrics.recordInventoryAdjustment("REFUND", itemReq.getQuantity());
+            }
         }
 
         orderRepository.save(order);
@@ -435,6 +691,10 @@ public class PaymentServiceImpl implements PaymentService {
 
         paymentRepository.save(payment);
 
+        if (cacheInvalidationService != null) {
+            cacheInvalidationService.evictAfterSaleOrRefund();
+        }
+
         return paymentMapper.toPaymentResponse(payment);
     }
 
@@ -446,7 +706,7 @@ public class PaymentServiceImpl implements PaymentService {
         }
     }
 
-    @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
     public List<RefundRecord> getRefundHistory(String paymentId) {
         Payment payment = paymentRepository.findById(paymentId)
                 .orElseThrow(() -> new AppException(ErrorCode.PAYMENT_NOT_FOUND));
@@ -464,187 +724,66 @@ public class PaymentServiceImpl implements PaymentService {
 
     // ----
     @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
-    @Transactional
+    @Transactional(readOnly = true)
     public ResponseEntity<String> exportInvoiceHtml(String paymentId) {
 
         Payment payment = paymentRepository.findById(paymentId)
                 .orElseThrow(() -> new AppException(ErrorCode.PAYMENT_NOT_FOUND));
 
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        String username = auth.getName();
+        org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder
+                .getContext().getAuthentication();
+        String username = auth != null ? auth.getName() : "Guest";
 
         Orders order = payment.getOrder();
 
         PaymentResponse paymentRes = paymentMapper.toPaymentResponse(payment);
         OrderResponse orderRes = orderMapper.toResponse(order);
 
-        String html = generateThermalHtml(paymentRes, orderRes, username);
+        String html = ThermalReceiptRenderer.render(paymentRes, orderRes, username);
 
         return ResponseEntity.ok()
                 .contentType(MediaType.TEXT_HTML)
                 .body(html);
     }
 
-    private String generateThermalHtml(PaymentResponse payment, OrderResponse order, String username) {
-
-        StringBuilder items = new StringBuilder();
-
-        for (OrderDetailResponse item : order.getOrderDetails()) {
-
-            BigDecimal subtotal = item.getPrice()
-                    .multiply(BigDecimal.valueOf(item.getQuantity()));
-
-            items.append("""
-                    <div class="item">
-                        <div class="name">%s</div>
-                        <div class="line small">
-                            <span>%dx%s</span>
-                            <span>%s</span>
-                        </div>
-                    </div>
-                    """.formatted(
-                    item.getName(),
-                    item.getQuantity(),
-                    formatShort(item.getPrice()),
-                    formatShort(subtotal)));
-        }
-
-        return """
-                <html>
-                <head>
-                    <style>
-                        body {
-                            font-family: monospace;
-                            width: 80mm;
-                            margin: 0;
-                            padding: 10px;
-                            font-size: 13px;
-                        }
-
-                        .center {
-                            text-align: center;
-                        }
-
-                        .line {
-                            display: flex;
-                            justify-content: space-between;
-                        }
-
-                        .small {
-                            font-size: 12px;
-                        }
-
-                        .name {
-                            font-weight: 500;
-                        }
-
-                        hr {
-                            border-top: 1px dashed black;
-                            margin: 6px 0;
-                        }
-
-                        .total {
-                            font-weight: bold;
-                            font-size: 15px;
-                        }
-
-                        .section {
-                            margin-top: 5px;
-                        }
-
-                        .footer {
-                            text-align: right;
-                            font-size: 12px;
-                            margin-top: 10px;
-                        }
-                    </style>
-                </head>
-
-                <body>
-
-                    <!-- HEADER -->
-                    <div class="center">
-                        <h3>DANG CAP STORE</h3>
-                        <div>Hotline: 0123 456 789</div>
-                        <div>--------------------------</div>
-                    </div>
-
-                    <!-- INFO -->
-                    <div class="section small">
-                        <div>Date: %s</div>
-                        <div>Customer: %s</div>
-                    </div>
-
-                    <hr/>
-
-                    <!-- ITEMS -->
-                    %s
-
-                    <hr/>
-
-                    <!-- SUMMARY -->
-                    <div class="line"><span>Total</span><span>%s</span></div>
-                    <div class="line"><span>Discount</span><span>-%s</span></div>
-                    <div class="line total"><span>Final</span><span>%s</span></div>
-
-                    <hr/>
-
-                    <!-- PAYMENT -->
-                    <div class="line"><span>Method</span><span>%s</span></div>
-                    <div class="line"><span>Received</span><span>%s</span></div>
-                    <div class="line"><span>Change</span><span>%s</span></div>
-
-                    <hr/>
-
-                    <!-- FOOTER INFO -->
-                    <div class="footer">
-                        Txn: %s <br/>
-                        Staff: %s
-                    </div>
-
-                    <hr/>
-
-                    <div class="center small">
-                        Thank you <br/>
-                        See you again!
-                    </div>
-
-                </body>
-                </html>
-                """.formatted(
-                payment.getPaymentDate().format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm")),
-                payment.getFullName() != null ? payment.getFullName() : "Guest",
-                items.toString(),
-
-                formatShort(order.getTotalPrice()),
-
-                formatShort(
-                        (order.getDiscountAmount() != null ? order.getDiscountAmount() : BigDecimal.ZERO)
-                                .add(payment.getPointDiscount() != null ? payment.getPointDiscount()
-                                        : BigDecimal.ZERO)),
-
-                formatShort(payment.getAmount()),
-                payment.getMethod() != null ? payment.getMethod().name() : "CASH",
-
-                formatShort(payment.getCashReceived()),
-                formatShort(payment.getChangeAmount()),
-                payment.getTransactionId(),
-                username);
-    }
-
     // ------------------------ Helper methods ------------------------
 
+    private void validateCustomerAccess(String targetUserId) {
+        var auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null) {
+            throw new AppException(ErrorCode.UNAUTHENTICATED);
+        }
+        boolean isStaff = auth.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN")
+                        || a.getAuthority().equals("ROLE_MANAGE")
+                        || a.getAuthority().equals("ROLE_EMPLOYEE")
+                        || a.getAuthority().equals("ADMIN")
+                        || a.getAuthority().equals("MANAGE")
+                        || a.getAuthority().equals("EMPLOYEE"));
+        if (!isStaff) {
+            String currentUsername = auth.getName();
+            User caller = userRepository.findByUsername(currentUsername)
+                    .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
+            if (!caller.getId().equals(targetUserId)) {
+                throw new AppException(ErrorCode.UNAUTHORIZED,
+                        "Bạn không có quyền truy cập dữ liệu của khách hàng khác");
+            }
+        }
+    }
+
     @Override
-    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE') or hasRole('EMPLOYEE')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE') or hasRole('EMPLOYEE') or hasRole('CUSTOMER')")
     public Page<PaymentResponse> getPaymentsByUserId(String userId, int page, int size) {
+        validateCustomerAccess(userId);
         Pageable pageable = PageRequest.of(Math.max(0, page - 1), size);
         return paymentRepository.findByUserId(userId, pageable)
                 .map(paymentMapper::toPaymentResponse);
     }
 
     @Override
-    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE') or hasRole('EMPLOYEE')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE') or hasRole('EMPLOYEE') or hasRole('CUSTOMER')")
     public CustomerHistoryResponse getCustomerHistoryStats(String userId) {
+        validateCustomerAccess(userId);
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
 
@@ -665,7 +804,7 @@ public class PaymentServiceImpl implements PaymentService {
 
         if (row != null && row.length >= 3) {
             totalOrders = row[0] != null ? ((Number) row[0]).longValue() : 0L;
-            totalSpent = toBigDecimal(row[1]);
+            totalSpent = CurrencyUtils.toBigDecimal(row[1]);
             lastPurchaseDate = row[2] != null ? (LocalDateTime) row[2] : null;
         }
 
@@ -687,31 +826,9 @@ public class PaymentServiceImpl implements PaymentService {
                 .build();
     }
 
-    private String formatShort(BigDecimal amount) {
-        if (amount == null)
-            return "0";
-        return String.format("%,.0f", amount);
+    private String generateTransactionId() {
+        String datePart = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
+        String randomPart = java.util.UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+        return "TXN-" + datePart + "-" + randomPart;
     }
-
-    private BigDecimal toBigDecimal(Object value) {
-        if (value == null) {
-            return BigDecimal.ZERO;
-        }
-        if (value instanceof BigDecimal) {
-            return (BigDecimal) value;
-        }
-        if (value instanceof Number) {
-            return BigDecimal.valueOf(((Number) value).doubleValue());
-        }
-        try {
-            return new BigDecimal(value.toString().trim());
-        } catch (Exception e) {
-            return BigDecimal.ZERO;
-        }
-    }
-
 }
-
-    
-            
-

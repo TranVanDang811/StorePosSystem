@@ -1,10 +1,14 @@
 package com.possystem.backend.importorder.service.impl;
 
+import com.possystem.backend.common.cache.CacheInvalidationService;
 import com.possystem.backend.common.enums.ConfirmStatus;
 import com.possystem.backend.common.enums.ImportStatus;
 import com.possystem.backend.common.enums.ProductStatus;
 import com.possystem.backend.common.exception.AppException;
 import com.possystem.backend.common.exception.ErrorCode;
+import com.possystem.backend.common.observability.PosBusinessMetrics;
+import com.possystem.backend.common.outbox.event.PosEventType;
+import com.possystem.backend.common.outbox.service.OutboxPublisher;
 import com.possystem.backend.common.util.mapper.ImportOrderMapper;
 import com.possystem.backend.importorder.dto.*;
 import com.possystem.backend.importorder.entity.ImportOrder;
@@ -12,20 +16,18 @@ import com.possystem.backend.importorder.entity.ImportOrderDetail;
 import com.possystem.backend.importorder.repository.ImportOrderDetailRepository;
 import com.possystem.backend.importorder.repository.ImportOrderRepository;
 import com.possystem.backend.importorder.service.ImportOrderService;
+import com.possystem.backend.importorder.util.ImportOrderExcelExporter;
 import com.possystem.backend.product.entity.Product;
+import com.possystem.backend.product.entity.StockMovement;
 import com.possystem.backend.product.repository.ProductRepository;
+import com.possystem.backend.product.repository.StockMovementRepository;
 import com.possystem.backend.supplier.entity.Supplier;
 import com.possystem.backend.supplier.repository.SupplierRepository;
-import jakarta.transaction.Transactional;
+import org.springframework.transaction.annotation.Transactional;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.poi.ss.usermodel.Cell;
-import org.apache.poi.ss.usermodel.Row;
-import org.apache.poi.ss.usermodel.Sheet;
-import org.apache.poi.ss.usermodel.Workbook;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -56,6 +58,10 @@ public class ImportOrderServiceImpl implements ImportOrderService {
     ImportOrderRepository importOrderRepository;
     ImportOrderMapper importOrderMapper;
     ImportOrderDetailRepository importOrderDetailRepository;
+    StockMovementRepository stockMovementRepository;
+    CacheInvalidationService cacheInvalidationService;
+    OutboxPublisher outboxPublisher;
+    PosBusinessMetrics businessMetrics;
 
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
     @Transactional
@@ -77,9 +83,21 @@ public class ImportOrderServiceImpl implements ImportOrderService {
             BigDecimal totalPrice = BigDecimal.ZERO;
             int totalQuantity = 0;
 
+            List<String> productIds = request.getImportDetails().stream()
+                    .map(ImportOrderDetailRequest::getProductId)
+                    .distinct()
+                    .toList();
+            Map<String, Product> productMap = productRepository.findAllById(productIds).stream()
+                    .collect(Collectors.toMap(Product::getId, p -> p));
+
             for (ImportOrderDetailRequest d : request.getImportDetails()) {
-                Product product = productRepository.findById(d.getProductId())
-                        .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND, d.getProductId()));
+                Product product = productMap.get(d.getProductId());
+                if (product == null) {
+                    product = productRepository.findById(d.getProductId()).orElse(null);
+                }
+                if (product == null) {
+                    throw new AppException(ErrorCode.PRODUCT_NOT_FOUND, d.getProductId());
+                }
 
                 if (product.getSupplier() == null || !product.getSupplier().getId().equals(request.getSupplierId())) {
                     throw new AppException(ErrorCode.PRODUCT_NOT_BELONG_TO_SUPPLIER,
@@ -111,6 +129,9 @@ public class ImportOrderServiceImpl implements ImportOrderService {
             ImportOrder fullOrder = importOrderRepository.findByIdWithDetails(savedOrder.getId())
                     .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_EXISTED));
 
+            if (cacheInvalidationService != null) {
+                cacheInvalidationService.evictReportCaches();
+            }
             return importOrderMapper.toResponse(fullOrder);
 
         } catch (Exception e) {
@@ -138,14 +159,29 @@ public class ImportOrderServiceImpl implements ImportOrderService {
         Map<String, ImportOrderDetail> detailMap = order.getImportDetails().stream()
                 .collect(Collectors.toMap(d -> d.getProduct().getId(), d -> d));
 
+        List<String> missingProductIds = request.getImportDetails().stream()
+                .map(ImportOrderDetailRequest::getProductId)
+                .filter(id -> !detailMap.containsKey(id))
+                .distinct()
+                .toList();
+
+        Map<String, Product> missingProductMap = missingProductIds.isEmpty() ? Map.of()
+                : productRepository.findAllById(missingProductIds).stream()
+                        .collect(Collectors.toMap(Product::getId, p -> p));
+
         for (ImportOrderDetailRequest d : request.getImportDetails()) {
             ImportOrderDetail detail = detailMap.get(d.getProductId());
             if (detail != null) {
                 detail.setQuantity(d.getQuantity());
                 detail.setImportPrice(d.getImportPrice());
             } else {
-                Product product = productRepository.findById(d.getProductId())
-                        .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND, d.getProductId()));
+                Product product = missingProductMap.get(d.getProductId());
+                if (product == null) {
+                    product = productRepository.findById(d.getProductId()).orElse(null);
+                }
+                if (product == null) {
+                    throw new AppException(ErrorCode.PRODUCT_NOT_FOUND, d.getProductId());
+                }
 
                 ImportOrderDetail newDetail = new ImportOrderDetail();
                 newDetail.setImportOrder(order);
@@ -194,8 +230,9 @@ public class ImportOrderServiceImpl implements ImportOrderService {
         return new ImportOrderStatisticResponse(totalOrders, totalProducts, totalAmount);
     }
 
-    @Transactional
+    @Override
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
+    @Transactional
     public ImportOrderResponse confirmAndFinalize(String orderId) {
         ImportOrder order = importOrderRepository.findByIdWithDetails(orderId)
                 .orElseThrow(() -> new AppException(ErrorCode.IMPORT_ORDER_NOT_FOUND));
@@ -225,10 +262,14 @@ public class ImportOrderServiceImpl implements ImportOrderService {
             order.setConfirmStatus(ConfirmStatus.CONFIRMED);
             order.setStatus(ImportStatus.IMPORTED);
             order.setImportUpdateDate(LocalDateTime.now());
-            return importOrderMapper.toResponse(importOrderRepository.save(order));
+            ImportOrderResponse res = importOrderMapper.toResponse(importOrderRepository.save(order));
+            if (cacheInvalidationService != null) {
+                cacheInvalidationService.evictAfterImportFinalized();
+            }
+            return res;
         }
 
-        // Cập nhật tồn kho và giá vốn bình quân gia quyền cho từng sản phẩm
+        // Cập nhật tồn kho và giá vốn bình quân gia quyền qua domain method trên Product
         for (ImportOrderDetail detail : order.getImportDetails()) {
             int received = detail.getReceivedQuantity();
             int confirmed = detail.getConfirmedQuantity();
@@ -236,34 +277,45 @@ public class ImportOrderServiceImpl implements ImportOrderService {
 
             if (delta > 0) {
                 Product product = detail.getProduct();
-                int oldStock = product.getStock();
-                int newStock = oldStock + delta;
-                product.setStock(newStock);
-
-                // Tính giá vốn bình quân gia quyền (Moving Average Cost)
-                // ((Tồn cũ * Giá vốn cũ) + (Nhập mới * Giá nhập mới)) / Tổng tồn mới
-                BigDecimal oldCost = product.getCost() != null ? product.getCost() : BigDecimal.ZERO;
-                BigDecimal importPrice = detail.getImportPrice() != null ? detail.getImportPrice() : BigDecimal.ZERO;
-
-                if (newStock > 0) {
-                    BigDecimal oldTotalValue = oldCost.multiply(BigDecimal.valueOf(Math.max(0, oldStock)));
-                    BigDecimal newImportValue = importPrice.multiply(BigDecimal.valueOf(delta));
-                    BigDecimal newAverageCost = oldTotalValue.add(newImportValue)
-                            .divide(BigDecimal.valueOf(newStock), 2, RoundingMode.HALF_UP);
-                    product.setCost(newAverageCost);
-                } else {
-                    product.setCost(importPrice);
-                }
-
-                // Cập nhật trạng thái OUT_OF_STOCK -> ACTIVE khi có hàng
-                if (product.getStatus() != ProductStatus.DISCONTINUED
-                        && newStock > 0
-                        && product.getStatus() == ProductStatus.OUT_OF_STOCK) {
-                    product.setStatus(ProductStatus.ACTIVE);
-                }
-
+                int beforeStock = product.getStock();
+                product.updateMovingAverageCost(delta, detail.getImportPrice());
                 detail.setConfirmedQuantity(received);
                 productRepository.save(product);
+
+                if (stockMovementRepository != null) {
+                    StockMovement movement = StockMovement.builder()
+                            .product(product)
+                            .movementType("IMPORT")
+                            .referenceId(order.getId())
+                            .quantityBefore(beforeStock)
+                            .quantityChange(delta)
+                            .quantityAfter(product.getStock())
+                            .note("Nhập kho hàng từ NCC - Đơn nhập " + order.getId())
+                            .build();
+                    stockMovementRepository.save(movement);
+                }
+
+                if (outboxPublisher != null) {
+                    Map<String, Object> invPayload = new java.util.LinkedHashMap<>();
+                    invPayload.put("productId", product.getId());
+                    invPayload.put("productCode", product.getProductCode());
+                    invPayload.put("productName", product.getName());
+                    invPayload.put("movementType", "IMPORT");
+                    invPayload.put("beforeStock", beforeStock);
+                    invPayload.put("quantityChange", delta);
+                    invPayload.put("afterStock", product.getStock());
+                    invPayload.put("referenceId", order.getId());
+                    outboxPublisher.publishInCurrentTransaction(
+                            "INVENTORY",
+                            product.getId(),
+                            PosEventType.INVENTORY_UPDATED,
+                            "product:" + product.getId(),
+                            order.getId(),
+                            invPayload);
+                }
+                if (businessMetrics != null) {
+                    businessMetrics.recordInventoryAdjustment("IMPORT", delta);
+                }
             }
         }
 
@@ -284,7 +336,11 @@ public class ImportOrderServiceImpl implements ImportOrderService {
         }
 
         order.setImportUpdateDate(LocalDateTime.now());
-        return importOrderMapper.toResponse(importOrderRepository.save(order));
+        ImportOrderResponse res = importOrderMapper.toResponse(importOrderRepository.save(order));
+        if (cacheInvalidationService != null) {
+            cacheInvalidationService.evictAfterImportFinalized();
+        }
+        return res;
     }
 
     @Transactional
@@ -302,7 +358,11 @@ public class ImportOrderServiceImpl implements ImportOrderService {
 
         order.setStatus(ImportStatus.CANCELLED);
         order.setImportUpdateDate(LocalDateTime.now());
-        return importOrderMapper.toResponse(importOrderRepository.save(order));
+        ImportOrderResponse res = importOrderMapper.toResponse(importOrderRepository.save(order));
+        if (cacheInvalidationService != null) {
+            cacheInvalidationService.evictAfterImportFinalized();
+        }
+        return res;
     }
 
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
@@ -359,6 +419,9 @@ public class ImportOrderServiceImpl implements ImportOrderService {
         }
 
         importOrderRepository.delete(order);
+        if (cacheInvalidationService != null) {
+            cacheInvalidationService.evictReportCaches();
+        }
     }
 
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
@@ -395,34 +458,7 @@ public class ImportOrderServiceImpl implements ImportOrderService {
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
     public ByteArrayInputStream exportImportOrdersToExcel() {
         List<ImportOrder> orders = importOrderRepository.findAll();
-
-        try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            Sheet sheet = workbook.createSheet("Import Orders");
-
-            Row header = sheet.createRow(0);
-            String[] columns = {"Mã phiếu", "Nhà cung cấp", "Ngày tạo", "Trạng thái", "Tổng số lượng", "Tổng tiền (VNĐ)"};
-            for (int i = 0; i < columns.length; i++) {
-                Cell cell = header.createCell(i);
-                cell.setCellValue(columns[i]);
-            }
-
-            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
-            int rowIdx = 1;
-            for (ImportOrder order : orders) {
-                Row row = sheet.createRow(rowIdx++);
-                row.createCell(0).setCellValue(order.getId());
-                row.createCell(1).setCellValue(order.getSupplier() != null ? order.getSupplier().getName() : "");
-                row.createCell(2).setCellValue(order.getImportDate() != null ? order.getImportDate().format(formatter) : "");
-                row.createCell(3).setCellValue(order.getStatus() != null ? order.getStatus().name() : "");
-                row.createCell(4).setCellValue(order.getTotalQuantity());
-                row.createCell(5).setCellValue(order.getTotalPrice() != null ? order.getTotalPrice().doubleValue() : 0.0);
-            }
-
-            workbook.write(out);
-            return new ByteArrayInputStream(out.toByteArray());
-        } catch (IOException e) {
-            throw new AppException(ErrorCode.INTERNAL_SERVER_ERROR);
-        }
+        return ImportOrderExcelExporter.exportToExcel(orders);
     }
 
     @Transactional

@@ -1,0 +1,148 @@
+{
+  "id": null,
+  "uid": "pos-prod-observability",
+  "title": "DangCap Coffee POS - Production Observability & Business Health",
+  "tags": ["pos", "spring-boot", "redis", "hikari", "outbox", "kafka"],
+  "timezone": "Asia/Ho_Chi_Minh",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": { "from": "now-30m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "HTTP Throughput (RPS)",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-pos" },
+      "targets": [{ "expr": "sum(rate(http_server_requests_seconds_count{uri!~\".*actuator.*\"}[1m]))", "legendFormat": "RPS", "refId": "A" }]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "API Latency P95 (ms)",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-pos" },
+      "targets": [{ "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{uri!~\".*actuator.*\"}[2m])) by (le)) * 1000", "legendFormat": "P95 ms", "refId": "A" }]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "API Latency P99 (ms)",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-pos" },
+      "targets": [{ "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{uri!~\".*actuator.*\"}[2m])) by (le)) * 1000", "legendFormat": "P99 ms", "refId": "A" }]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "HTTP 5xx Error Rate (%)",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-pos" },
+      "targets": [{ "expr": "100 * sum(rate(http_server_requests_seconds_count{status=~\"5..\"}[2m])) / clamp_min(sum(rate(http_server_requests_seconds_count[2m])), 0.001)", "legendFormat": "5xx %", "refId": "A" }]
+    },
+    {
+      "id": 5,
+      "type": "gauge",
+      "title": "Redis Cache Hit Rate (%)",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-pos" },
+      "targets": [{ "expr": "pos_cache_hit_rate_percent", "legendFormat": "Hit %", "refId": "A" }],
+      "fieldConfig": { "defaults": { "min": 0, "max": 100, "unit": "percent" } }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Outbox Dead-Letter Count",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-pos" },
+      "targets": [{ "expr": "pos_outbox_events_count{status=\"DEAD_LETTER\"}", "legendFormat": "DLQ", "refId": "A" }]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "HTTP Latency Percentiles (P50 / P95 / P99)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-pos" },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(http_server_requests_seconds_bucket{uri!~\".*actuator.*\"}[1m])) by (le)) * 1000", "legendFormat": "P50 (ms)", "refId": "A" },
+        { "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{uri!~\".*actuator.*\"}[1m])) by (le)) * 1000", "legendFormat": "P95 (ms)", "refId": "B" },
+        { "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{uri!~\".*actuator.*\"}[1m])) by (le)) * 1000", "legendFormat": "P99 (ms)", "refId": "C" }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "HTTP Requests by Status Class (2xx / 4xx / 5xx)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-pos" },
+      "targets": [
+        { "expr": "sum(rate(http_server_requests_seconds_count{status=~\"2..\"}[1m]))", "legendFormat": "2xx/s", "refId": "A" },
+        { "expr": "sum(rate(http_server_requests_seconds_count{status=~\"4..\"}[1m]))", "legendFormat": "4xx/s", "refId": "B" },
+        { "expr": "sum(rate(http_server_requests_seconds_count{status=~\"5..\"}[1m]))", "legendFormat": "5xx/s", "refId": "C" }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Business Operations Rate (Orders / Payments / Vouchers / Shifts)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-pos" },
+      "targets": [
+        { "expr": "sum(rate(pos_orders_placed_total[1m])) * 60", "legendFormat": "Orders Created/min", "refId": "A" },
+        { "expr": "sum(rate(pos_payments_completed_total[1m])) * 60", "legendFormat": "Payments Completed/min", "refId": "B" },
+        { "expr": "sum(rate(pos_payments_failed_total[1m])) * 60", "legendFormat": "Payments Failed/min", "refId": "C" },
+        { "expr": "sum(rate(pos_vouchers_redemptions_total[1m])) * 60", "legendFormat": "Voucher Redemptions/min", "refId": "D" },
+        { "expr": "sum(rate(pos_inventory_adjustments_total[1m])) * 60", "legendFormat": "Inventory Adjustments/min", "refId": "E" }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "JVM Heap Memory, CPU & GC Pause",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-pos" },
+      "targets": [
+        { "expr": "sum(jvm_memory_used_bytes{area=\"heap\"}) / 1048576", "legendFormat": "Heap Used (MB)", "refId": "A" },
+        { "expr": "process_cpu_usage * 100", "legendFormat": "Process CPU (%)", "refId": "B" },
+        { "expr": "rate(jvm_gc_pause_seconds_sum[1m]) * 1000", "legendFormat": "GC Pause (ms/s)", "refId": "C" }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "HikariCP Connection Pool (Active / Idle / Pending)",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-pos" },
+      "targets": [
+        { "expr": "hikaricp_connections_active", "legendFormat": "Active", "refId": "A" },
+        { "expr": "hikaricp_connections_idle", "legendFormat": "Idle", "refId": "B" },
+        { "expr": "hikaricp_connections_pending", "legendFormat": "Pending", "refId": "C" }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Redis Cache Ops (Hits / Misses / DB Fallbacks)",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-pos" },
+      "targets": [
+        { "expr": "rate(pos_cache_hits_total[1m])", "legendFormat": "Hits/s", "refId": "A" },
+        { "expr": "rate(pos_cache_misses_total[1m])", "legendFormat": "Misses/s", "refId": "B" },
+        { "expr": "rate(pos_cache_db_fallbacks_total[1m])", "legendFormat": "DB Fallbacks/s", "refId": "C" }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Outbox Queue Depth & Kafka Consumer Lag",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 20 },
+      "datasource": { "type": "prometheus", "uid": "prometheus-pos" },
+      "targets": [
+        { "expr": "pos_outbox_events_count{status=\"PENDING\"}", "legendFormat": "Outbox PENDING", "refId": "A" },
+        { "expr": "pos_outbox_events_count{status=\"FAILED\"}", "legendFormat": "Outbox FAILED", "refId": "B" },
+        { "expr": "max(kafka_consumer_fetch_manager_records_lag_max)", "legendFormat": "Kafka Max Consumer Lag", "refId": "C" }
+      ]
+    }
+  ]
+}

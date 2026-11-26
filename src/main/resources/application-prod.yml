@@ -70,10 +70,16 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,metrics,prometheus,caches
   endpoint:
     health:
       show-details: when-authorized
+  health:
+    redis:
+      enabled: true
+  tracing:
+    sampling:
+      probability: ${TRACE_SAMPLING_PROBABILITY:0.25}
 
 logging:
   file:

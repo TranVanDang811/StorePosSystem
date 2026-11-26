@@ -14,7 +14,8 @@ import com.possystem.backend.user.dto.UserUpdateRequest;
 import com.possystem.backend.user.entity.User;
 import com.possystem.backend.user.repository.UserRepository;
 import com.possystem.backend.user.service.UserService;
-import jakarta.transaction.Transactional;
+import java.time.LocalDateTime;
+import org.springframework.transaction.annotation.Transactional;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
@@ -194,6 +195,7 @@ public class UserServiceImpl implements UserService {
         return userMapper.toUserResponse(userRepository.save(user));
     }
 
+    @Transactional
     public void changePassword(String userId, String oldPassword, String newPassword) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
@@ -213,6 +215,7 @@ public class UserServiceImpl implements UserService {
         }
 
         user.setPassword(passwordEncoder.encode(newPassword));
+        user.setPasswordChangedAt(LocalDateTime.now());
         userRepository.save(user);
     }
 

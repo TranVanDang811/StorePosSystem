@@ -14,10 +14,11 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.List;
-
+import java.util.Optional;
 
 @Repository
 public interface OrderRepository extends JpaRepository<Orders,String > {
+    Optional<Orders> findByOrderCode(String orderCode);
     List<Orders> findAllByCreatedAtBetween(LocalDateTime start, LocalDateTime end);
 
     // 🔹 Lấy danh sách đơn hàng trong khoảng thời gian

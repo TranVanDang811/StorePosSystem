@@ -16,6 +16,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -39,11 +40,7 @@ public class ProductController {
     ObjectMapper objectMapper;
     Validator validator;
 
-    @PostMapping(consumes = {MediaType.MULTIPART_FORM_DATA_VALUE})
-    @Operation(summary = "Create product", description = "Add new products (with images). Transfer `product` as JSON and `images` as files.")
-    public ApiResponse<ProductResponse> create(
-            @RequestPart("product") String productJson,
-            @RequestPart(value = "images", required = false) MultipartFile images) {
+    private ProductRequest parseAndValidateProduct(String productJson) {
         ProductRequest productRequest;
         try {
             productRequest = objectMapper.readValue(productJson, ProductRequest.class);
@@ -54,6 +51,16 @@ public class ProductController {
         if (!violations.isEmpty()) {
             throw new ConstraintViolationException(violations);
         }
+        return productRequest;
+    }
+
+    @PostMapping(consumes = {MediaType.MULTIPART_FORM_DATA_VALUE})
+    @ResponseStatus(HttpStatus.CREATED)
+    @Operation(summary = "Create product", description = "Add new products (with images). Transfer `product` as JSON and `images` as files.")
+    public ApiResponse<ProductResponse> create(
+            @RequestPart("product") String productJson,
+            @RequestPart(value = "images", required = false) MultipartFile images) {
+        ProductRequest productRequest = parseAndValidateProduct(productJson);
         return ApiResponse.<ProductResponse>builder()
                 .result(productService.create(productRequest, images))
                 .build();
@@ -65,16 +72,7 @@ public class ProductController {
             @PathVariable String productId,
             @RequestPart("product") String productJson,
             @RequestPart(value = "images", required = false) MultipartFile images) {
-        ProductRequest productRequest;
-        try {
-            productRequest = objectMapper.readValue(productJson, ProductRequest.class);
-        } catch (Exception e) {
-            throw new AppException(ErrorCode.INVALID_JSON);
-        }
-        Set<ConstraintViolation<ProductRequest>> violations = validator.validate(productRequest);
-        if (!violations.isEmpty()) {
-            throw new ConstraintViolationException(violations);
-        }
+        ProductRequest productRequest = parseAndValidateProduct(productJson);
         return ApiResponse.<ProductResponse>builder()
                 .result(productService.update(productId, productRequest, images))
                 .build();

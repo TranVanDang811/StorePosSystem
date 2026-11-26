@@ -9,6 +9,7 @@ import com.possystem.backend.auth.dto.*;
 import com.possystem.backend.auth.entity.InvalidatedToken;
 import com.possystem.backend.auth.repository.InvalidatedTokenRepository;
 import com.possystem.backend.auth.service.AuthenticationService;
+import com.possystem.backend.common.enums.UserStatus;
 import com.possystem.backend.common.exception.AppException;
 import com.possystem.backend.common.exception.ErrorCode;
 import com.possystem.backend.user.entity.User;
@@ -38,6 +39,7 @@ import java.util.UUID;
 public class AuthenticationServiceImpl implements AuthenticationService {
     UserRepository userRepository;
     InvalidatedTokenRepository invalidatedTokenRepository;
+    PasswordEncoder passwordEncoder;
 
     @NonFinal
     @Value("${jwt.signerKey}") // goi tu yaml
@@ -65,11 +67,14 @@ public class AuthenticationServiceImpl implements AuthenticationService {
 
     // Xác thực user và tạo JWT nếu hợp lệ
     public AuthenticationResponse authenticate(AuthenticationRequest request) {
-        // Masked key for security
-        PasswordEncoder passwordEncoder = new BCryptPasswordEncoder(10);
         var user = userRepository
                 .findByUsername(request.getUsername())
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_FOUND));
+
+        if (user.getStatus() != null && user.getStatus() != UserStatus.ACTIVE) {
+            log.warn("Login attempt for deactivated user: {}", request.getUsername());
+            throw new AppException(ErrorCode.UNAUTHENTICATED, "Tài khoản của bạn đã bị vô hiệu hóa hoặc ngừng hoạt động");
+        }
 
         boolean authenticated = passwordEncoder.matches(request.getPassword(), user.getPassword());
 
@@ -131,8 +136,21 @@ public class AuthenticationServiceImpl implements AuthenticationService {
 
         if (invalidatedTokenRepository.existsById(signedJWT.getJWTClaimsSet().getJWTID())) {
             throw new AppException(ErrorCode.UNAUTHENTICATED);
-
         }
+
+        // Validate token_type claim
+        Object tokenTypeObj = signedJWT.getJWTClaimsSet().getClaim("token_type");
+        if (tokenTypeObj != null) {
+            String tokenType = tokenTypeObj.toString();
+            if (isRefresh && !"REFRESH".equalsIgnoreCase(tokenType)) {
+                log.warn("Attempt to use non-refresh token (type: {}) for refresh", tokenType);
+                throw new AppException(ErrorCode.UNAUTHENTICATED, "Token không phải là Refresh Token hợp lệ");
+            } else if (!isRefresh && "REFRESH".equalsIgnoreCase(tokenType)) {
+                log.warn("Attempt to use refresh token as access token");
+                throw new AppException(ErrorCode.UNAUTHENTICATED, "Không thể sử dụng Refresh Token thay cho Access Token");
+            }
+        }
+
         return signedJWT;
     }
 
@@ -151,6 +169,12 @@ public class AuthenticationServiceImpl implements AuthenticationService {
 
         var user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new AppException(ErrorCode.UNAUTHENTICATED));
+
+        if (user.getStatus() != null && user.getStatus() != UserStatus.ACTIVE) {
+            log.warn("Refresh token attempt for deactivated user: {}", username);
+            throw new AppException(ErrorCode.UNAUTHENTICATED, "Tài khoản của bạn đã bị vô hiệu hóa hoặc ngừng hoạt động");
+        }
+
         var token = generateToken(user);
         var refreshToken = generateRefreshToken(user);
         return AuthenticationResponse.builder().token(token).refreshToken(refreshToken).authenticated(true).build();
@@ -161,6 +185,9 @@ public class AuthenticationServiceImpl implements AuthenticationService {
 
         Instant now = Instant.now();
         Instant refreshExpiry = now.plus(refreshableDuration, ChronoUnit.SECONDS);
+        long pwdTs = user.getPasswordChangedAt() != null
+                ? user.getPasswordChangedAt().atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+                : 0L;
 
         JWTClaimsSet jwtClaimsSet = new JWTClaimsSet.Builder()
                 .subject(user.getUsername())
@@ -168,6 +195,8 @@ public class AuthenticationServiceImpl implements AuthenticationService {
                 .issueTime(Date.from(now))
                 .expirationTime(Date.from(refreshExpiry)) // 🔥 đúng duration
                 .jwtID(UUID.randomUUID().toString())
+                .claim("token_type", "REFRESH")
+                .claim("pwd_ts", pwdTs)
                 .claim("scope", buildScope(user))
                 .build();
 
@@ -189,6 +218,9 @@ public class AuthenticationServiceImpl implements AuthenticationService {
 
         Instant now = Instant.now();
         Instant tokenExpiry = now.plus(validDuration, ChronoUnit.SECONDS);
+        long pwdTs = user.getPasswordChangedAt() != null
+                ? user.getPasswordChangedAt().atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+                : 0L;
 
         JWTClaimsSet jwtClaimsSet = new JWTClaimsSet.Builder()
                 .subject(user.getUsername())
@@ -196,6 +228,8 @@ public class AuthenticationServiceImpl implements AuthenticationService {
                 .issueTime(Date.from(now))
                 .expirationTime(Date.from(tokenExpiry))
                 .jwtID(UUID.randomUUID().toString())
+                .claim("token_type", "ACCESS")
+                .claim("pwd_ts", pwdTs)
                 .claim("scope", buildScope(user))
                 .build();
 

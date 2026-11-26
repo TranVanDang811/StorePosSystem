@@ -1,12 +1,19 @@
 package com.possystem.backend.order.service.impl;
 
+import com.possystem.backend.common.cache.CacheInvalidationService;
 import com.possystem.backend.common.enums.OrderStatus;
+import com.possystem.backend.common.observability.PosBusinessMetrics;
+import com.possystem.backend.common.enums.ShiftStatus;
 import com.possystem.backend.common.exception.AppException;
 import com.possystem.backend.common.exception.ErrorCode;
+import com.possystem.backend.common.outbox.event.PosEventType;
+import com.possystem.backend.common.outbox.service.OutboxPublisher;
+import com.possystem.backend.common.util.CurrencyUtils;
 import com.possystem.backend.common.util.mapper.OrderDetailMapper;
 import com.possystem.backend.common.util.mapper.OrderMapper;
 import com.possystem.backend.discount.repository.DiscountRepository;
 import com.possystem.backend.discount.service.DiscountService;
+import com.possystem.backend.order.dto.OrderDetailRequest;
 import com.possystem.backend.order.dto.OrderRequest;
 import com.possystem.backend.order.dto.OrderResponse;
 import com.possystem.backend.order.dto.OrderSummaryResponse;
@@ -18,6 +25,7 @@ import com.possystem.backend.order.repository.OrderRepository;
 import com.possystem.backend.order.service.OrderService;
 import com.possystem.backend.product.entity.Product;
 import com.possystem.backend.product.repository.ProductRepository;
+import com.possystem.backend.shift.repository.ShiftRepository;
 import com.possystem.backend.user.repository.CustomerProfileRepository;
 import com.possystem.backend.user.repository.UserRepository;
 import lombok.AccessLevel;
@@ -35,6 +43,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -55,10 +64,18 @@ public class OrderServiceImpl implements OrderService {
     final DiscountRepository discountRepository;
     DiscountService discountService;
     CustomerProfileRepository customerProfileRepository;
+    ShiftRepository shiftRepository;
+    OutboxPublisher outboxPublisher;
+    CacheInvalidationService cacheInvalidationService;
+    PosBusinessMetrics businessMetrics;
 
     @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
     @Transactional
     public OrderResponse createOrder(OrderRequest request) {
+
+        // Kiểm tra ca làm việc đang mở (Shift Guarding)
+        shiftRepository.findByStatus(ShiftStatus.OPEN)
+                .orElseThrow(() -> new AppException(ErrorCode.NO_OPENED_SHIFT));
 
         // Khởi tạo đơn hàng
         Orders order = Orders.builder()
@@ -69,11 +86,20 @@ public class OrderServiceImpl implements OrderService {
                 .finalAmount(BigDecimal.ZERO)
                 .build();
 
+        // Batch fetch tất cả sản phẩm trong 1 query (tránh N+1)
+        Set<String> productIds = request.getOrderDetails().stream()
+                .map(OrderDetailRequest::getProductId)
+                .collect(Collectors.toSet());
+        Map<String, Product> productMap = productRepository.findAllById(productIds).stream()
+                .collect(Collectors.toMap(Product::getId, p -> p));
+
         // Tính tổng tiền sản phẩm
         Set<OrderDetail> orderDetails = request.getOrderDetails().stream()
                 .map(detailRequest -> {
-                    Product product = productRepository.findById(detailRequest.getProductId())
-                            .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
+                    Product product = productMap.get(detailRequest.getProductId());
+                    if (product == null) {
+                        throw new AppException(ErrorCode.PRODUCT_NOT_FOUND);
+                    }
 
                     BigDecimal totalPrice = product.getPrice()
                             .multiply(BigDecimal.valueOf(detailRequest.getQuantity()));
@@ -83,6 +109,7 @@ public class OrderServiceImpl implements OrderService {
                             .product(product)
                             .quantity(detailRequest.getQuantity())
                             .totalPrice(totalPrice)
+                            .price(product.getPrice())
                             .build();
                 })
                 .collect(Collectors.toSet());
@@ -107,11 +134,41 @@ public class OrderServiceImpl implements OrderService {
 
         // Lưu đơn hàng
         Orders savedOrder = orderRepository.save(order);
+        OrderResponse response = orderMapper.toResponse(savedOrder);
+
+        // Transactional Outbox: Đẩy sự kiện OrderCreated
+        if (outboxPublisher != null) {
+            Map<String, Object> eventPayload = new java.util.LinkedHashMap<>();
+            eventPayload.put("orderId", savedOrder.getId());
+            eventPayload.put("orderCode", savedOrder.getOrderCode());
+            eventPayload.put("status", savedOrder.getStatus().name());
+            eventPayload.put("totalPrice", savedOrder.getTotalPrice());
+            eventPayload.put("discountCode", savedOrder.getDiscountCode());
+            eventPayload.put("discountAmount", savedOrder.getDiscountAmount());
+            eventPayload.put("finalAmount", savedOrder.getFinalAmount());
+            eventPayload.put("itemCount",
+                    savedOrder.getOrderDetails() != null ? savedOrder.getOrderDetails().size() : 0);
+            outboxPublisher.publish(
+                    "ORDER",
+                    savedOrder.getId(),
+                    PosEventType.ORDER_CREATED,
+                    "order:" + savedOrder.getId(),
+                    savedOrder.getOrderCode(),
+                    eventPayload);
+        }
+
+        if (cacheInvalidationService != null) {
+            boolean discountUsed = request.getDiscountCode() != null && !request.getDiscountCode().isBlank();
+            cacheInvalidationService.evictAfterOrderMutation(discountUsed);
+        }
+
+        if (businessMetrics != null) {
+            businessMetrics.recordOrderCreated(savedOrder.getFinalAmount());
+        }
 
         // Response
-        return orderMapper.toResponse(savedOrder);
+        return response;
     }
-
 
     @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
     public Page<OrderResponse> getAllOrders(int page, int size) {
@@ -127,8 +184,7 @@ public class OrderServiceImpl implements OrderService {
             String fromDate,
             String toDate,
             String status,
-            String keyword
-    ) {
+            String keyword) {
         LocalDateTime from = null;
         LocalDateTime to = null;
 
@@ -144,7 +200,8 @@ public class OrderServiceImpl implements OrderService {
         if (status != null && !status.isBlank()) {
             try {
                 orderStatus = OrderStatus.valueOf(status);
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            }
         }
 
         Pageable pageable = PageRequest.of(page, size);
@@ -154,8 +211,7 @@ public class OrderServiceImpl implements OrderService {
                 to,
                 orderStatus,
                 keyword,
-                pageable
-        ).map(orderMapper::toResponse);
+                pageable).map(orderMapper::toResponse);
     }
 
     @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
@@ -163,8 +219,7 @@ public class OrderServiceImpl implements OrderService {
             String fromDate,
             String toDate,
             String status,
-            String keyword
-    ) {
+            String keyword) {
         LocalDateTime from = null;
         LocalDateTime to = null;
 
@@ -180,7 +235,8 @@ public class OrderServiceImpl implements OrderService {
         if (status != null && !status.isBlank()) {
             try {
                 orderStatus = OrderStatus.valueOf(status);
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            }
         }
 
         Object statsObj = orderRepository.getOrderSummaryStats(from, to, orderStatus, keyword);
@@ -202,7 +258,7 @@ public class OrderServiceImpl implements OrderService {
                     .pendingOrders(row[2] != null ? ((Number) row[2]).longValue() : 0L)
                     .holdOrders(row[3] != null ? ((Number) row[3]).longValue() : 0L)
                     .canceledOrders(row[4] != null ? ((Number) row[4]).longValue() : 0L)
-                    .totalRevenue(toBigDecimal(row[5]))
+                    .totalRevenue(CurrencyUtils.toBigDecimal(row[5]))
                     .build();
         }
 
@@ -224,17 +280,64 @@ public class OrderServiceImpl implements OrderService {
         return orderMapper.toResponse(order);
     }
 
-    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE') or hasRole('EMPLOYEE')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
     @Transactional
     public void deleteOrder(String orderId) {
         Orders order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_EXISTED));
 
+        if (order.getStatus() == OrderStatus.PAID) {
+            throw new AppException(ErrorCode.ORDER_ALREADY_PAID,
+                    "Không thể xóa đơn hàng đã thanh toán. Hãy thực hiện quy trình hoàn trả hợp lệ.");
+        }
+
         orderRepository.delete(order);
+        if (cacheInvalidationService != null) {
+            cacheInvalidationService.evictAfterOrderMutation(false);
+        }
     }
 
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE') or hasRole('EMPLOYEE')")
-    public List<OrderResponse> getOrdersByDateRange(LocalDateTime start, LocalDateTime end , OrderStatus status) {
+    @Transactional
+    public OrderResponse cancelOrder(String orderId, String reason) {
+        Orders order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_EXISTED));
+
+        if (order.getStatus() == OrderStatus.PAID || order.getStatus() == OrderStatus.CANCELED) {
+            throw new AppException(ErrorCode.CANNOT_CANCEL_ORDER);
+        }
+
+        order.setStatus(OrderStatus.CANCELED);
+        Orders savedOrder = orderRepository.save(order);
+        OrderResponse response = orderMapper.toResponse(savedOrder);
+
+        if (outboxPublisher != null) {
+            Map<String, Object> eventPayload = new java.util.LinkedHashMap<>();
+            eventPayload.put("orderId", savedOrder.getId());
+            eventPayload.put("orderCode", savedOrder.getOrderCode());
+            eventPayload.put("finalAmount", savedOrder.getFinalAmount());
+            eventPayload.put("status", savedOrder.getStatus().name());
+            eventPayload.put("reason", reason != null && !reason.isBlank() ? reason : "CASHIER_CANCELLED");
+            outboxPublisher.publish(
+                    "ORDER",
+                    savedOrder.getId(),
+                    PosEventType.ORDER_CANCELLED,
+                    "order:" + savedOrder.getId(),
+                    savedOrder.getOrderCode(),
+                    eventPayload);
+        }
+
+        if (cacheInvalidationService != null) {
+            cacheInvalidationService.evictAfterOrderMutation(false);
+        }
+        if (businessMetrics != null) {
+            businessMetrics.recordOrderCancelled(reason != null && !reason.isBlank() ? reason : "CASHIER_CANCELLED");
+        }
+        return response;
+    }
+
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE') or hasRole('EMPLOYEE')")
+    public List<OrderResponse> getOrdersByDateRange(LocalDateTime start, LocalDateTime end, OrderStatus status) {
         List<Orders> orders = orderRepository.findAllByCreatedAtBetween(start, end);
 
         if (status != null) {
@@ -248,7 +351,7 @@ public class OrderServiceImpl implements OrderService {
                 .toList();
     }
 
-    //py
+    // py
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE') or hasRole('EMPLOYEE')")
     public RevenueStatsResponse getRevenueStats(LocalDateTime start, LocalDateTime end) {
         List<Orders> orders = orderRepository.findAllByCreatedAtBetween(start, end).stream()
@@ -267,7 +370,6 @@ public class OrderServiceImpl implements OrderService {
         return new RevenueStatsResponse((long) orders.size(), totalRevenue, totalProductsSold);
     }
 
-
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE') or hasRole('EMPLOYEE')")
     @Transactional
     public void holdOrder(String orderId) {
@@ -278,8 +380,10 @@ public class OrderServiceImpl implements OrderService {
         order.setStatus(OrderStatus.HOLD);
 
         orderRepository.save(order);
+        if (cacheInvalidationService != null) {
+            cacheInvalidationService.evictAfterOrderMutation(false);
+        }
     }
-
 
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE') or hasRole('EMPLOYEE')")
     @Transactional
@@ -328,7 +432,12 @@ public class OrderServiceImpl implements OrderService {
         BigDecimal finalAmount = order.getTotalPrice().subtract(discountAmount);
         order.setFinalAmount(finalAmount.max(BigDecimal.ZERO));
 
-        return orderMapper.toResponse(orderRepository.save(order));
+        OrderResponse savedResponse = orderMapper.toResponse(orderRepository.save(order));
+        if (cacheInvalidationService != null) {
+            boolean discountUsed = request.getDiscountCode() != null && !request.getDiscountCode().isBlank();
+            cacheInvalidationService.evictAfterOrderMutation(discountUsed);
+        }
+        return savedResponse;
     }
 
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE') or hasRole('EMPLOYEE')")
@@ -344,24 +453,7 @@ public class OrderServiceImpl implements OrderService {
     private String generateOrderCode() {
         String date = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
         String time = LocalDateTime.now().format(DateTimeFormatter.ofPattern("HHmmss"));
-        int randomSuffix = java.util.concurrent.ThreadLocalRandom.current().nextInt(100, 999);
+        String randomSuffix = java.util.UUID.randomUUID().toString().substring(0, 6).toUpperCase();
         return "ORD-" + date + "-" + time + "-" + randomSuffix;
-    }
-
-    private BigDecimal toBigDecimal(Object value) {
-        if (value == null) {
-            return BigDecimal.ZERO;
-        }
-        if (value instanceof BigDecimal) {
-            return (BigDecimal) value;
-        }
-        if (value instanceof Number) {
-            return BigDecimal.valueOf(((Number) value).doubleValue());
-        }
-        try {
-            return new BigDecimal(value.toString().trim());
-        } catch (Exception e) {
-            return BigDecimal.ZERO;
-        }
     }
 }

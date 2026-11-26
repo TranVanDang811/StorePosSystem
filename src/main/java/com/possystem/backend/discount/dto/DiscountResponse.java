@@ -19,4 +19,6 @@ public class DiscountResponse {
     LocalDateTime endDate;
     boolean active;
     String code;
+    int usageLimit;
+    int usedCount;
 }

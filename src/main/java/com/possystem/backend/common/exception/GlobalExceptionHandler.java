@@ -8,6 +8,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.BindException;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
@@ -125,13 +126,15 @@ public class GlobalExceptionHandler {
     // xử lý lỗi validate @Valid
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiResponse<Object>> handleValidation(MethodArgumentNotValidException ex) {
-        String enumKey = ex.getFieldError() != null ? ex.getFieldError().getDefaultMessage() : null;
+        String defaultMessage = ex.getFieldError() != null ? ex.getFieldError().getDefaultMessage() : "Validation error";
         ErrorCode errorCode = ErrorCode.INVALID_KEY;
 
         Map<String, Object> attributes = null;
+        boolean isEnumKey = false;
         try {
-            if (enumKey != null) {
-                errorCode = ErrorCode.valueOf(enumKey);
+            if (defaultMessage != null) {
+                errorCode = ErrorCode.valueOf(defaultMessage);
+                isEnumKey = true;
             }
 
             if (!ex.getBindingResult().getAllErrors().isEmpty()) {
@@ -142,17 +145,46 @@ public class GlobalExceptionHandler {
                 log.debug("Validation attributes: {}", attributes);
             }
         } catch (IllegalArgumentException e) {
-            log.warn("Invalid error code: {}", enumKey, e);
+            log.debug("Validation message is literal string: {}", defaultMessage);
         } catch (Exception e) {
             log.error("Failed to extract constraint violation attributes", e);
         }
 
-        String message = (attributes != null)
-                ? mapAttribute(errorCode.getMessage(), attributes)
-                : errorCode.getMessage();
+        String message;
+        if (isEnumKey) {
+            message = (attributes != null)
+                    ? mapAttribute(errorCode.getMessage(), attributes)
+                    : errorCode.getMessage();
+        } else {
+            message = defaultMessage;
+        }
 
         return ResponseEntity.badRequest()
                 .body(ApiResponse.error(errorCode.getCode(), message));
+    }
+
+    @ExceptionHandler({ObjectOptimisticLockingFailureException.class, jakarta.persistence.OptimisticLockException.class})
+    public ResponseEntity<ApiResponse<?>> handleOptimisticLockingFailure(Exception ex) {
+        log.warn("Optimistic locking conflict: {}", ex.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(ApiResponse.error(HttpStatus.CONFLICT.value(), "Dữ liệu đã được cập nhật bởi một phiên làm việc khác. Vui lòng tải lại và thử lại."));
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ApiResponse<?>> handleIllegalArgumentException(IllegalArgumentException ex) {
+        log.warn("Illegal argument: {}", ex.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(HttpStatus.BAD_REQUEST.value(), ex.getMessage()));
+    }
+
+    @ExceptionHandler(IllegalStateException.class)
+    public ResponseEntity<ApiResponse<?>> handleIllegalStateException(IllegalStateException ex) {
+        log.warn("Illegal state: {}", ex.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(HttpStatus.BAD_REQUEST.value(), ex.getMessage()));
     }
 
     private String mapAttribute(String message, Map<String, Object> attributes) {
@@ -167,7 +199,14 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ApiResponse<?>> handleDataIntegrityViolationException(DataIntegrityViolationException ex) {
-        log.error("Data integrity violation", ex);
+        log.error("Data integrity violation: {}", ex.getMessage());
+
+        String message = ex.getMessage();
+        if (message != null && (message.contains("foreign key") || message.contains("Cannot delete or update a parent row") || message.contains("fk_"))) {
+            return ResponseEntity
+                    .status(HttpStatus.BAD_REQUEST)
+                    .body(ApiResponse.error(HttpStatus.BAD_REQUEST.value(), "Không thể xóa hoặc cập nhật dữ liệu do có liên kết ràng buộc với dữ liệu khác trong hệ thống"));
+        }
 
         ErrorCode errorCode = ErrorCode.DUPLICATE_RESOURCE;
         return ResponseEntity

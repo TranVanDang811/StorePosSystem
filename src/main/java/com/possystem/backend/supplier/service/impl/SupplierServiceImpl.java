@@ -1,5 +1,9 @@
 package com.possystem.backend.supplier.service.impl;
 
+import com.possystem.backend.common.cache.CacheInvalidationService;
+import com.possystem.backend.common.cache.CacheNames;
+import com.possystem.backend.common.cache.CachedPage;
+import com.possystem.backend.common.cache.PosCacheService;
 import com.possystem.backend.common.exception.AppException;
 import com.possystem.backend.common.exception.ErrorCode;
 import com.possystem.backend.common.util.mapper.SupplierMapper;
@@ -20,8 +24,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
 import java.util.Optional;
 
 @Slf4j
@@ -33,8 +37,11 @@ public class SupplierServiceImpl implements SupplierService {
     SupplierMapper supplierMapper;
     ProductRepository productRepository;
     ImportOrderRepository importOrderRepository;
+    PosCacheService posCacheService;
+    CacheInvalidationService cacheInvalidationService;
 
     @Override
+    @Transactional
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
     public SupplierResponse create(SupplierRequest request) {
         if (request.getName() != null && isSupplierNameExists(request.getName().trim())) {
@@ -57,14 +64,32 @@ public class SupplierServiceImpl implements SupplierService {
         SupplierResponse response = supplierMapper.toResponse(supplier);
         response.setProductCount(0L);
         response.setImportOrderCount(0L);
+        if (cacheInvalidationService != null) {
+            cacheInvalidationService.evictSupplierCaches();
+        }
         return response;
     }
 
     @Override
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE') or hasRole('EMPLOYEE')")
     public Page<SupplierResponse> getAll(int page, int size, String keyword) {
-        Pageable pageable = PageRequest.of(page, size);
+        int safePage = Math.max(0, page);
+        int safeSize = size > 0 ? size : 10;
         String kw = (keyword != null && !keyword.trim().isEmpty()) ? keyword.trim() : null;
+        String key = String.format("p=%d:s=%d:kw=%s", safePage, safeSize, kw != null ? kw.toLowerCase() : "-");
+
+        if (posCacheService != null) {
+            CachedPage<SupplierResponse> cached = posCacheService.getOrLoad(
+                    CacheNames.SUPPLIERS_LIST,
+                    key,
+                    () -> CachedPage.from(loadSuppliersFromDb(safePage, safeSize, kw)));
+            return cached != null ? cached.toPage() : Page.empty();
+        }
+        return loadSuppliersFromDb(safePage, safeSize, kw);
+    }
+
+    private Page<SupplierResponse> loadSuppliersFromDb(int page, int size, String kw) {
+        Pageable pageable = PageRequest.of(page, size);
         Page<Supplier> supplierPage = supplierRepository.filterSuppliers(kw, pageable);
 
         java.util.Map<String, Long> productCountMap = productRepository.countProductsGroupedBySupplier()
@@ -100,6 +125,13 @@ public class SupplierServiceImpl implements SupplierService {
     @Override
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE') or hasRole('EMPLOYEE')")
     public SupplierResponse getById(String id) {
+        if (posCacheService != null) {
+            return posCacheService.getOrLoad(CacheNames.SUPPLIERS_DETAIL, id, () -> loadSupplierById(id));
+        }
+        return loadSupplierById(id);
+    }
+
+    private SupplierResponse loadSupplierById(String id) {
         Supplier supplier = supplierRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.SUPPLIER_NOT_FOUND));
         SupplierResponse res = supplierMapper.toResponse(supplier);
@@ -109,6 +141,7 @@ public class SupplierServiceImpl implements SupplierService {
     }
 
     @Override
+    @Transactional
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
     public SupplierResponse update(String id, SupplierRequest request) {
         Supplier supplier = supplierRepository.findById(id)
@@ -139,12 +172,22 @@ public class SupplierServiceImpl implements SupplierService {
         SupplierResponse res = supplierMapper.toResponse(saved);
         res.setProductCount(productRepository.countBySupplier_Id(saved.getId()));
         res.setImportOrderCount(importOrderRepository.countBySupplier_Id(saved.getId()));
+        if (cacheInvalidationService != null) {
+            cacheInvalidationService.evictSupplierCaches();
+        }
         return res;
     }
 
     @Override
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE') or hasRole('EMPLOYEE')")
     public SupplierSummaryResponse getSummary() {
+        if (posCacheService != null) {
+            return posCacheService.getOrLoad(CacheNames.SUPPLIERS_SUMMARY, "summary", this::loadSummaryFromDb);
+        }
+        return loadSummaryFromDb();
+    }
+
+    private SupplierSummaryResponse loadSummaryFromDb() {
         long totalSuppliers = supplierRepository.count();
 
         java.util.Set<String> activeSupplierIds = new java.util.HashSet<>();
@@ -176,6 +219,7 @@ public class SupplierServiceImpl implements SupplierService {
     }
 
     @Override
+    @Transactional
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGE')")
     public void delete(String id) {
         Supplier supplier = supplierRepository.findById(id)
@@ -189,6 +233,9 @@ public class SupplierServiceImpl implements SupplierService {
         }
 
         supplierRepository.delete(supplier);
+        if (cacheInvalidationService != null) {
+            cacheInvalidationService.evictSupplierCaches();
+        }
     }
 
     public boolean isSupplierNameExists(String name) {

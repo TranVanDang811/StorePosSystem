@@ -1,5 +1,6 @@
 package com.possystem.backend.order.service.impl;
 
+import com.possystem.backend.common.enums.ShiftStatus;
 import com.possystem.backend.common.exception.AppException;
 import com.possystem.backend.common.exception.ErrorCode;
 import com.possystem.backend.common.util.mapper.OrderMapper;
@@ -12,6 +13,8 @@ import com.possystem.backend.order.repository.OrderDetailRepository;
 import com.possystem.backend.order.repository.OrderRepository;
 import com.possystem.backend.product.entity.Product;
 import com.possystem.backend.product.repository.ProductRepository;
+import com.possystem.backend.shift.entity.Shift;
+import com.possystem.backend.shift.repository.ShiftRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -39,6 +42,9 @@ class OrderServiceTest {
 
     @Mock
     private ProductRepository productRepository;
+
+    @Mock
+    private ShiftRepository shiftRepository;
 
     @Mock
     private DiscountService discountService;
@@ -87,8 +93,8 @@ class OrderServiceTest {
                 .orderDetails(List.of(item1, item2))
                 .build();
 
-        when(productRepository.findById("prod-1")).thenReturn(Optional.of(productA));
-        when(productRepository.findById("prod-2")).thenReturn(Optional.of(productB));
+        when(shiftRepository.findByStatus(ShiftStatus.OPEN)).thenReturn(Optional.of(Shift.builder().status(ShiftStatus.OPEN).build()));
+        when(productRepository.findAllById(any())).thenReturn(List.of(productA, productB));
 
         when(orderRepository.save(any(Orders.class))).thenAnswer(invocation -> {
             Orders order = invocation.getArgument(0);
@@ -126,13 +132,31 @@ class OrderServiceTest {
                 .orderDetails(List.of(item))
                 .build();
 
-        when(productRepository.findById("invalid-prod-id")).thenReturn(Optional.empty());
+        when(shiftRepository.findByStatus(ShiftStatus.OPEN)).thenReturn(Optional.of(Shift.builder().status(ShiftStatus.OPEN).build()));
+        when(productRepository.findAllById(any())).thenReturn(List.of());
 
         AppException ex = assertThrows(AppException.class, () ->
                 orderService.createOrder(request)
         );
 
         assertEquals(ErrorCode.PRODUCT_NOT_FOUND, ex.getErrorCode());
+        verify(orderRepository, never()).save(any(Orders.class));
+    }
+
+    @Test
+    @DisplayName("Unit Test (Shift Guard): Ném ngoại lệ khi chưa mở ca làm việc")
+    void createOrder_NoOpenedShift_ThrowsException() {
+        OrderRequest request = OrderRequest.builder()
+                .orderDetails(List.of(OrderDetailRequest.builder().productId("prod-1").quantity(1).build()))
+                .build();
+
+        when(shiftRepository.findByStatus(ShiftStatus.OPEN)).thenReturn(Optional.empty());
+
+        AppException ex = assertThrows(AppException.class, () ->
+                orderService.createOrder(request)
+        );
+
+        assertEquals(ErrorCode.NO_OPENED_SHIFT, ex.getErrorCode());
         verify(orderRepository, never()).save(any(Orders.class));
     }
 }

@@ -1,0 +1,71 @@
+groups:
+  - name: pos_production_alerts
+    rules:
+      - alert: PosHighHttp5xxErrorRate
+        expr: |
+          (
+            sum(rate(http_server_requests_seconds_count{status=~"5.."}[2m]))
+            /
+            clamp_min(sum(rate(http_server_requests_seconds_count[2m])), 0.001)
+          ) > 0.02
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "POS Backend 5xx error rate exceeds 2%"
+          description: "More than 2% of HTTP requests returned 5xx over the last 2 minutes."
+
+      - alert: PosHighApiLatencyP95
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(http_server_requests_seconds_bucket{uri!~".*actuator.*"}[5m])) by (le)
+          ) > 0.5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "POS API P95 latency exceeds 500ms"
+          description: "P95 request latency is above 500ms over the last 5 minutes."
+
+      - alert: PosOutboxDeadLetterDetected
+        expr: pos_outbox_events_count{status="DEAD_LETTER"} > 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Dead-lettered Outbox events detected"
+          description: "{{ $value }} event(s) moved to DEAD_LETTER queue and require replay inspection."
+
+      - alert: PosHikariPoolSaturation
+        expr: |
+          (hikaricp_connections_active / clamp_min(hikaricp_connections_max, 1)) > 0.85
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HikariCP connection pool saturation above 85%"
+          description: "Active DB connections are nearing pool maximum capacity."
+
+      - alert: PosRedisCircuitBreakerOpen
+        expr: pos_cache_circuit_breaker_state > 0
+        for: 15s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis cache circuit breaker is HALF_OPEN or OPEN"
+          description: "POS Backend has fallen back to direct MySQL reads because Redis experienced failures."
+
+      - alert: PosHighJvmHeapUsage
+        expr: |
+          (
+            sum(jvm_memory_used_bytes{area="heap"})
+            /
+            clamp_min(sum(jvm_memory_max_bytes{area="heap"} > 0), 1)
+          ) > 0.85
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "JVM Heap usage above 85%"
+          description: "POS Backend heap pressure is sustained above 85%."

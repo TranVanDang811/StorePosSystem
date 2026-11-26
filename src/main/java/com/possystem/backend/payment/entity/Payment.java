@@ -43,6 +43,9 @@ public class Payment extends AbstractEntity {
 
     String transactionId; // Mã giao dịch (cổng thanh toán)
 
+    @Column(name = "idempotency_key", length = 100, unique = true)
+    String idempotencyKey; // Khóa chống trùng lặp thanh toán
+
     String note; // Ghi chú
 
     @Column(precision = 15, scale = 2)

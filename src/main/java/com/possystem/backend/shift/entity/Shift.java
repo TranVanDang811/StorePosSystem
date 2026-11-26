@@ -67,6 +67,10 @@ public class Shift {
     @Column(columnDefinition = "TEXT")
     String note;
 
+    @Column(name = "terminal_id", length = 50)
+    @Builder.Default
+    String terminalId = "MAIN_COUNTER";
+
     @Enumerated(EnumType.STRING)
     ShiftStatus status;
 }

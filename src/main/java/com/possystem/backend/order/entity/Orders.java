@@ -33,6 +33,9 @@ public class Orders extends AbstractEntity {
     @Column(nullable = false)
     OrderStatus status;  // Trạng thái đơn hàng
 
+    @Version
+    Long version;
+
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL,orphanRemoval = true)
     Set<OrderDetail> orderDetails;
 }

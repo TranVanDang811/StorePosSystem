@@ -43,7 +43,7 @@ class CloudinaryServiceTest {
     @Test
     @DisplayName("Unit Test: Upload ảnh hợp lệ thành công (PNG < 5MB)")
     void uploadImage_Success() throws IOException {
-        byte[] content = "valid image content".getBytes();
+        byte[] content = new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0};
         MockMultipartFile file = new MockMultipartFile(
                 "file", "product-test.png", "image/png", content
         );
@@ -129,6 +129,21 @@ class CloudinaryServiceTest {
 
         assertDoesNotThrow(() -> cloudinaryService.deleteImage("products/sample_123"));
         verify(uploader, times(1)).destroy(eq("products/sample_123"), any(Map.class));
+    }
+
+    @Test
+    @DisplayName("Security Test: Từ chối upload file giả mạo MIME type (Magic Bytes mismatch)")
+    void uploadImage_SpoofedMagicBytes_ThrowsException() {
+        MockMultipartFile fakePng = new MockMultipartFile(
+                "file", "script.png", "image/png", "<script>alert('xss')</script>".getBytes()
+        );
+
+        AppException ex = assertThrows(AppException.class, () ->
+                cloudinaryService.uploadImage(fakePng)
+        );
+
+        assertEquals(ErrorCode.UPLOAD_FAILED, ex.getErrorCode());
+        assertTrue(ex.getMessage().contains("Magic Bytes"));
     }
 }
 

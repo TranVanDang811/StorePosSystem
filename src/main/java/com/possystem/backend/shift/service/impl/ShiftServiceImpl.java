@@ -1,14 +1,13 @@
 package com.possystem.backend.shift.service.impl;
 
-import com.lowagie.text.*;
-import com.lowagie.text.pdf.PdfPCell;
-import com.lowagie.text.pdf.PdfPTable;
-import com.lowagie.text.pdf.PdfWriter;
-import com.lowagie.text.pdf.draw.LineSeparator;
 import com.possystem.backend.common.enums.ShiftStatus;
 import com.possystem.backend.common.exception.AppException;
 import com.possystem.backend.common.exception.ErrorCode;
+import com.possystem.backend.common.observability.PosBusinessMetrics;
+import com.possystem.backend.common.outbox.event.PosEventType;
+import com.possystem.backend.common.outbox.service.OutboxPublisher;
 import com.possystem.backend.common.util.mapper.ShiftMapper;
+import com.possystem.backend.shift.util.ShiftReportRenderer;
 import com.possystem.backend.order.repository.OrderRepository;
 import com.possystem.backend.payment.repository.PaymentRepository;
 import com.possystem.backend.shift.dto.CloseShiftRequest;
@@ -49,34 +48,59 @@ public class ShiftServiceImpl implements ShiftService {
     final ShiftRepository shiftRepository;
     final PaymentRepository paymentRepository;
     final UserService userService;
+    final OutboxPublisher outboxPublisher;
+    final PosBusinessMetrics businessMetrics;
     @Override
+    @Transactional
     public ShiftResponse openShift(OpenShiftRequest request) {
         User currentUser = userService.getCurrentUser();
+        String terminalId = (request.getTerminalId() != null && !request.getTerminalId().isBlank())
+                ? request.getTerminalId().trim()
+                : "MAIN_COUNTER";
+
+        shiftRepository.findByStatusAndTerminalId(ShiftStatus.OPEN, terminalId)
+                .ifPresent(s -> {
+                    throw new AppException(ErrorCode.SHIFT_ALREADY_OPENED, "Ca làm việc tại quầy " + terminalId + " đã được mở (" + s.getShiftCode() + ")");
+                });
+
         shiftRepository.findByStatus(ShiftStatus.OPEN)
                 .ifPresent(s -> {
-                    throw new AppException(ErrorCode.SHIFT_ALREADY_OPENED);
+                    if (s.getTerminalId() == null || s.getTerminalId().equalsIgnoreCase(terminalId)) {
+                        throw new AppException(ErrorCode.SHIFT_ALREADY_OPENED);
+                    }
                 });
 
         Shift shift = Shift.builder()
                 .shiftCode(generateShiftCode())
                 .startTime(LocalDateTime.now())
+                .terminalId(terminalId)
                 .note(request.getNote())
                 .openingCash(request.getOpeningCash())
                 .status(ShiftStatus.OPEN)
                 .openedBy(currentUser)
                 .build();
 
-        return shiftMapper.toResponse(shiftRepository.save(shift));
+        Shift saved = shiftRepository.save(shift);
+        if (businessMetrics != null) {
+            businessMetrics.recordShiftOpened(saved.getTerminalId());
+        }
+        return shiftMapper.toResponse(saved);
     }
 
     @Override
+    @Transactional
     public ShiftResponse closeShift(CloseShiftRequest request) {
 
         // 1. Lấy user hiện tại
         User currentUser = userService.getCurrentUser();
 
         // 2. Lấy ca đang mở
-        Shift shift = shiftRepository.findByStatus(ShiftStatus.OPEN)
+        String terminalId = (request.getTerminalId() != null && !request.getTerminalId().isBlank())
+                ? request.getTerminalId().trim()
+                : "MAIN_COUNTER";
+
+        Shift shift = shiftRepository.findByStatusAndTerminalId(ShiftStatus.OPEN, terminalId)
+                .or(() -> shiftRepository.findByStatus(ShiftStatus.OPEN))
                 .orElseThrow(() -> new AppException(ErrorCode.NO_OPENED_SHIFT));
 
         LocalDateTime now = LocalDateTime.now();
@@ -175,17 +199,52 @@ public class ShiftServiceImpl implements ShiftService {
         shift.setStatus(ShiftStatus.CLOSED);
 
         // =========================
-        // 14. SAVE
+        // 14. SAVE & EMIT SHIFT_CLOSED OUTBOX EVENT
         // =========================
-        return shiftMapper.toResponse(shiftRepository.save(shift));
+        Shift savedShift = shiftRepository.save(shift);
+        if (outboxPublisher != null) {
+            java.util.Map<String, Object> shiftPayload = new java.util.LinkedHashMap<>();
+            shiftPayload.put("shiftId", savedShift.getId());
+            shiftPayload.put("shiftCode", savedShift.getShiftCode());
+            shiftPayload.put("terminalId", savedShift.getTerminalId());
+            shiftPayload.put("openedByName", savedShift.getOpenedBy() != null ? savedShift.getOpenedBy().getFullName() : null);
+            shiftPayload.put("closedByName", currentUser != null ? currentUser.getFullName() : null);
+            shiftPayload.put("openingCash", savedShift.getOpeningCash());
+            shiftPayload.put("cashSales", savedShift.getCashSales());
+            shiftPayload.put("cashRefunds", savedShift.getCashRefunds());
+            shiftPayload.put("expectedCash", savedShift.getExpectedCash());
+            shiftPayload.put("countedCash", savedShift.getCountedCash());
+            shiftPayload.put("difference", savedShift.getDifference());
+            shiftPayload.put("totalOrders", savedShift.getTotalOrders());
+            shiftPayload.put("totalCustomers", savedShift.getTotalCustomers());
+            outboxPublisher.publish(
+                    "SHIFT",
+                    savedShift.getId() != null ? savedShift.getId() : savedShift.getShiftCode(),
+                    PosEventType.SHIFT_CLOSED,
+                    "shift:" + (savedShift.getId() != null ? savedShift.getId() : savedShift.getShiftCode()),
+                    savedShift.getShiftCode(),
+                    shiftPayload);
+        }
+        if (businessMetrics != null) {
+            businessMetrics.recordShiftClosed(savedShift.getTerminalId(), savedShift.getDifference());
+        }
+        return shiftMapper.toResponse(savedShift);
     }
 
     @Override
     public ShiftResponse getCurrentShift() {
+        return getCurrentShift(null);
+    }
 
-        Shift shift = shiftRepository.findByStatus(ShiftStatus.OPEN)
-                .orElse(null);
-
+    @Override
+    public ShiftResponse getCurrentShift(String terminalId) {
+        Shift shift = null;
+        if (terminalId != null && !terminalId.isBlank()) {
+            shift = shiftRepository.findByStatusAndTerminalId(ShiftStatus.OPEN, terminalId.trim()).orElse(null);
+        }
+        if (shift == null) {
+            shift = shiftRepository.findByStatus(ShiftStatus.OPEN).orElse(null);
+        }
         return shiftMapper.toResponse(shift);
     }
 
@@ -274,16 +333,6 @@ public class ShiftServiceImpl implements ShiftService {
                 now.getSecond()
         );
     }
-    private PdfPCell createCell(String text, Font font, int align) {
-        PdfPCell cell = new PdfPCell(new Phrase(text, font));
-        cell.setHorizontalAlignment(align);
-        return cell;
-    }
-
-    private String formatDateTime(LocalDateTime dateTime) {
-        return dateTime.format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss"));
-    }
-
     //-----------------
     @PreAuthorize("hasRole('ADMIN') or hasRole('EMPLOYEE') or hasRole('MANAGE')")
     @Transactional(readOnly = true)
@@ -293,154 +342,10 @@ public class ShiftServiceImpl implements ShiftService {
                 .orElseThrow(() -> new AppException(ErrorCode.SHIFT_NOT_FOUND));
 
         ShiftClosingReportResponse report = shiftMapper.toClosingReportResponse(shift);
-
-        String html = generateShiftHtml(report);
+        String html = ShiftReportRenderer.render(report);
 
         return ResponseEntity.ok()
                 .contentType(MediaType.TEXT_HTML)
                 .body(html);
-    }
-    private String generateShiftHtml(ShiftClosingReportResponse r) {
-
-        String denominations = """
-<div class="section">
-    <div class="center bold">DENOMINATIONS</div>
-    
-    %s
-    %s
-    %s
-    %s
-    %s
-    %s
-    %s
-    %s
-    %s
-</div>
-""".formatted(
-                denomRow("500,000", r.getNote500k()),
-                denomRow("200,000", r.getNote200k()),
-                denomRow("100,000", r.getNote100k()),
-                denomRow("50,000", r.getNote50k()),
-                denomRow("20,000", r.getNote20k()),
-                denomRow("10,000", r.getNote10k()),
-                denomRow("5,000", r.getNote5k()),
-                denomRow("2,000", r.getNote2k()),
-                denomRow("1,000", r.getNote1k())
-        );
-
-        return """
-<html>
-<head>
-<style>
-body {
-    font-family: monospace;
-    width: 80mm;
-    padding: 10px;
-    font-size: 13px;
-}
-
-.center { text-align: center; }
-
-.line {
-    display: flex;
-    justify-content: space-between;
-}
-
-.bold { font-weight: bold; }
-
-.small { font-size: 12px; }
-
-hr {
-    border-top: 1px dashed black;
-    margin: 6px 0;
-}
-</style>
-</head>
-
-<body>
-
-<div class="center">
-    <h3>SHIFT REPORT</h3>
-    <div>%s</div>
-</div>
-
-<hr/>
-
-<div class="line"><span>Start</span><span>%s</span></div>
-<div class="line"><span>End</span><span>%s</span></div>
-<div class="line"><span>Opened</span><span>%s</span></div>
-<div class="line"><span>Closed</span><span>%s</span></div>
-
-
-<hr/>
-
-%s
-
-<hr/>
-
-<div class="line"><span>Opening</span><span>%s</span></div>
-<div class="line"><span>Sales</span><span>%s</span></div>
-<div class="line"><span>Refund</span><span>%s</span></div>
-
-<hr/>
-
-<div class="line bold"><span>Expected</span><span>%s</span></div>
-<div class="line bold"><span>Counted</span><span>%s</span></div>
-<div class="line bold"><span>Diff</span><span>%s</span></div>
-
-<hr/>
-
-<div class="line"><span>Orders</span><span>%d</span></div>
-<div class="line"><span>Customers</span><span>%d</span></div>
-
-<hr/>
-
-<div class="center small">
-    Close shift OK 
-</div>
-
-</body>
-</html>
-""".formatted(
-                r.getShiftCode(),
-                formatDateTime(r.getStartTime()),
-                formatDateTime(r.getEndTime()),
-                r.getOpenedByName(),
-                r.getClosedByName(),
-                denominations,
-                formatShort(r.getOpeningCash()),
-                formatShort(r.getCashSales()),
-                formatShort(r.getCashRefunds()),
-                formatShort(r.getExpectedCash()),
-                formatShort(r.getCountedCash()),
-                formatShort(r.getDifference()),
-
-                r.getTotalOrdersPaid(),
-                r.getTotalCustomers()
-        );
-    }
-
-
-    //---
-    private String formatShort(BigDecimal amount) {
-        if (amount == null) return "0";
-        return String.format("%,.0f", amount);
-    }
-    private String denomRow(String label, Long count) {
-
-        long c = count == null ? 0 : count;
-        long value = Long.parseLong(label.replace(",", ""));
-        long total = c * value;
-
-        return """
-<div class="line small">
-    <span>%s x %d</span>
-    <span>%s</span>
-</div>
-""".formatted(
-                label,
-                c,
-                formatShort(BigDecimal.valueOf(total))
-        );
     }
 }

@@ -40,6 +40,7 @@ public enum ErrorCode {
     INVALID_PAYMENT_AMOUNT(3016,"The customer did not give enough money.",HttpStatus.BAD_REQUEST),
     PRODUCT_NOT_BELONG_TO_SUPPLIER(3017,"Not owned by this supplier",HttpStatus.BAD_REQUEST),
     ERROR_CREATING_ORDER_PDF(3018,"Error when creating a PDF form",HttpStatus.BAD_REQUEST),
+    INVALID_REQUEST(3019, "Invalid request parameters", HttpStatus.BAD_REQUEST),
     // ===== Resource not found =====
     USER_NOT_FOUND(4001, "User not found", HttpStatus.NOT_FOUND),
     PRODUCT_NOT_FOUND(4002, "Product not found", HttpStatus.NOT_FOUND),
@@ -58,6 +59,8 @@ public enum ErrorCode {
     IMPORT_ORDER_DETAIL_NOT_FOUND(4015, "Import Order Detail not found", HttpStatus.NOT_FOUND),
     NO_CLOSED_SHIFT(4016,"No closed shift",HttpStatus.NOT_FOUND),
     SHIFT_NOT_FOUND(4017,"Shift not found",HttpStatus.NOT_FOUND),
+    CONVERSATION_NOT_FOUND(4018, "Conversation not found", HttpStatus.NOT_FOUND),
+
 
     // ===== Business rules =====
     ORDER_ALREADY_SHIPPED(5001, "Cannot delete a shipped order", HttpStatus.BAD_REQUEST),
@@ -78,6 +81,7 @@ public enum ErrorCode {
     CATEGORY_HAS_PRODUCTS(5016, "Cannot delete category containing products", HttpStatus.BAD_REQUEST),
     CATEGORY_NAME_ALREADY_EXISTS(5017, "Category name already exists", HttpStatus.BAD_REQUEST),
     SUPPLIER_HAS_DEPENDENCIES(5018, "Cannot delete supplier containing products or import orders", HttpStatus.BAD_REQUEST),
+    TOO_MANY_REQUESTS(6001, "Too many requests. Please try again later.", HttpStatus.TOO_MANY_REQUESTS),
     ;
     private final int code;
     private final String message;

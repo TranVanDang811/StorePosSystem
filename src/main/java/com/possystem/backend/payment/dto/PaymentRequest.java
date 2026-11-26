@@ -31,4 +31,6 @@ public class PaymentRequest {
     PaymentMethod method;
 
     String note;
+
+    String idempotencyKey;
 }

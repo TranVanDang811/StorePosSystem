@@ -28,4 +28,6 @@ public class DiscountRequest {
 
     @NotBlank(message = "Mã khuyến mãi không được để trống")
     String code;
+
+    int usageLimit; // 0 = không giới hạn
 }
