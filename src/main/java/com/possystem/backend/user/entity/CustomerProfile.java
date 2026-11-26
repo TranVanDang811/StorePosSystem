@@ -21,7 +21,8 @@ public class CustomerProfile {
     String membershipLevel; // hạng thành viên (Silver, Gold...)
 
     @Version
-    Long version;
+    @Builder.Default
+    Long version = 0L;
 
     @OneToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id")

@@ -34,7 +34,8 @@ public class    Product extends AbstractEntity {
     String imageUrl;
 
     @Version
-    Long version;
+    @Builder.Default
+    Long version = 0L;
 
     @Enumerated(EnumType.STRING)
     ProductStatus status;
